@@ -35,8 +35,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Checks the repository layout, hacs.json and manifest keys HACS needs
-      # to install the integration as a custom repository.
+      # to install the integration as a custom repository. The license check
+      # is skipped: LICENSE.md is Hamedata's own license, not an SPDX one, and
+      # it only matters for inclusion in the HACS default store.
       - name: Run HACS validation
         uses: hacs/action@main
         with:
           category: integration
+          ignore: license
