@@ -1,6 +1,8 @@
 # Marstek Home Assistant Integration
 
-The Marstek integration is an official Home Assistant integration from Marstek. It communicates with supported Marstek energy storage devices locally over UDP and exposes their status as Home Assistant sensors.
+The Marstek integration communicates with supported Marstek energy storage devices locally over UDP and exposes their status as Home Assistant sensors.
+
+> **About this fork:** This is a fork of [MarstekEnergy/ha_marstek](https://github.com/MarstekEnergy/ha_marstek) that can be installed through HACS. It uses a [fork of the `aiomarstek` library](https://github.com/DominusEcho/aiomarstek) that fixes a memory leak: the upstream 0.1.7 release keeps every UDP response it receives, growing Home Assistant's memory use by roughly 15 MB per device per day. The library is pinned to an exact commit, and the integration code is otherwise unchanged from upstream.
 
 ## Requirements
 
@@ -38,12 +40,21 @@ The device is polled locally every 30 seconds. No cloud account or external serv
 
 ## Installation
 
-This repository is intended for manual installation as a Home Assistant custom integration.
+### HACS (recommended)
+
+1. In Home Assistant, open **HACS**, select the menu in the top-right corner, and choose **Custom repositories**.
+2. Enter `https://github.com/DominusEcho/ha_marstek`, select the **Integration** type, and select **Add**.
+3. Search HACS for **Marstek**, open it, and select **Download**.
+4. Restart Home Assistant.
+
+HACS notifies you when a new release of this repository is published.
+
+### Manual
 
 1. Clone the repository and switch to the `main` branch:
 
    ```bash
-   git clone https://github.com/MarstekEnergy/ha_marstek.git
+   git clone https://github.com/DominusEcho/ha_marstek.git
    cd ha_marstek
    git checkout main
    ```
@@ -57,16 +68,7 @@ This repository is intended for manual installation as a Home Assistant custom i
 
 3. Restart Home Assistant.
 
-4. Open **Settings** > **Devices & services**, select **Add integration**, search for **Marstek**, and choose one of the following setup methods:
-
-   - **Search for devices on the local network** to use UDP discovery.
-   - **Enter device IP address** for manual setup.
-
-The Marstek device must be powered on, reachable from Home Assistant, and have Open API enabled before setup.
-
-## Updating
-
-Pull the latest version and copy the integration over the installed version:
+To update a manual installation, pull the latest version, copy the integration over the installed version, and restart Home Assistant:
 
 ```bash
 cd /path/to/ha_marstek
@@ -75,13 +77,25 @@ mkdir -p /path/to/homeassistant/config/custom_components/marstek
 cp -r custom_components/marstek/. /path/to/homeassistant/config/custom_components/marstek/
 ```
 
-Restart Home Assistant after updating. The trailing `/.` copies the contents of the integration folder, which overwrites the installed files instead of nesting a second copy inside them.
+The trailing `/.` copies the contents of the integration folder, which overwrites the installed files instead of nesting a second copy inside them.
+
+### Adding a device
+
+After installing and restarting, open **Settings** > **Devices & services**, select **Add integration**, search for **Marstek**, and choose one of the following setup methods:
+
+- **Search for devices on the local network** to use UDP discovery.
+- **Enter device IP address** for manual setup.
+
+The Marstek device must be powered on, reachable from Home Assistant, and have Open API enabled before setup.
+
+On first start after installing, Home Assistant downloads the pinned `aiomarstek` library from GitHub, so it needs internet access once. If you previously used the upstream integration, the fixed library replaces the PyPI 0.1.7 release automatically.
 
 ## Troubleshooting
 
 If **Marstek does not appear, or setup fails immediately with no connection attempt**, check the Home Assistant log:
 
 - An error mentioning `version key in the manifest file` means you are running an older copy of this integration. Replace the `custom_components/marstek` folder with the latest version from this repository and restart.
+- An error mentioning `Requirements for marstek not found` means Home Assistant could not download the `aiomarstek` library from GitHub. Check that Home Assistant has internet access and restart.
 - An error mentioning `probatio` or `SyntaxError` means Home Assistant is too old. Upgrade Home Assistant Core to 2026.9.0 or newer, restart, and try again.
 
 If no device is discovered:

@@ -1,13 +1,16 @@
 {
   "domain": "marstek",
   "name": "Marstek",
-  "codeowners": ["@MarstekEnergy"],
+  "codeowners": ["@DominusEcho"],
   "config_flow": true,
   "dependencies": ["network"],
-  "documentation": "https://github.com/MarstekEnergy/ha_marstek",
+  "documentation": "https://github.com/DominusEcho/ha_marstek",
   "integration_type": "device",
   "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/DominusEcho/ha_marstek/issues",
   "quality_scale": "bronze",
-  "requirements": ["aiomarstek==0.1.7"],
-  "version": "0.1.7"
+  "requirements": [
+    "https://github.com/DominusEcho/aiomarstek/archive/18aeb71633f9173e49e1bc31d32e131deeaec792.zip#aiomarstek==0.1.7+dominusecho.1"
+  ],
+  "version": "0.1.7.1"
 }

@@ -29,3 +29,14 @@ jobs:
       # validation, including the manifest rules for custom integrations.
       - name: Run hassfest
         uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: HACS
+    runs-on: ubuntu-latest
+    steps:
+      # Checks the repository layout, hacs.json and manifest keys HACS needs
+      # to install the integration as a custom repository.
+      - name: Run HACS validation
+        uses: hacs/action@main
+        with:
+          category: integration
