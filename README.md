@@ -2,7 +2,7 @@
 
 The Marstek integration communicates with supported Marstek energy storage devices locally over UDP and exposes their status as Home Assistant sensors.
 
-> **About this fork:** This is a fork of [MarstekEnergy/ha_marstek](https://github.com/MarstekEnergy/ha_marstek) that can be installed through HACS. It uses a [fork of the `aiomarstek` library](https://github.com/DominusEcho/aiomarstek) that fixes a memory leak: the upstream 0.1.7 release keeps every UDP response it receives, growing Home Assistant's memory use by roughly 15 MB per device per day. The library is pinned to an exact commit, and the integration code is otherwise unchanged from upstream.
+> **About this fork:** This is a fork of [MarstekEnergy/ha_marstek](https://github.com/MarstekEnergy/ha_marstek) that can be installed through HACS. It uses a [fork of the `aiomarstek` library](https://github.com/DominusEcho/aiomarstek) that fixes a memory leak: the upstream 0.1.7 release keeps every UDP response it receives, growing Home Assistant's memory use by roughly 15 MB per device per day. The library is pinned to an exact commit. The fork also adds battery charge/discharge energy and CT meter grid sensors, and only creates PV sensors on devices with PV inputs.
 
 ## Requirements
 
@@ -34,7 +34,15 @@ After setup, the integration creates sensors for:
 
 - Battery level, power, and status.
 - Device operating mode (`Auto`, `AI`, `Manual`, `Passive`, or `UPS`).
-- Each of the four PV inputs: power, voltage, current, and state (`Standby` or `Working`).
+- Lifetime discharged and charged battery energy, for the battery in the Energy dashboard.
+- Grid power, in total and per phase, when a CT meter is connected to the device.
+- Grid import and export energy, integrated from the CT meter's grid power, for the grid in the Energy dashboard. They only count while Home Assistant is running.
+- Venus A and Venus D only: lifetime PV energy, and for each of the four PV inputs, power, voltage, current, and state (`Standby` or `Working`).
+
+### Energy dashboard
+
+- **Grid connections**: use *Grid import energy* for energy consumed from the grid and *Grid export energy* for energy returned to the grid.
+- **Home battery storage**: use *Lifetime discharged energy* for energy discharged from the battery and *Lifetime charged energy* for energy charged into the battery. Some firmware reports the charged energy as 0.
 
 The device is polled locally every 30 seconds. No cloud account or external service is required.
 

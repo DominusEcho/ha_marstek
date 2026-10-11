@@ -8,9 +8,10 @@
   "integration_type": "device",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/DominusEcho/ha_marstek/issues",
+  "loggers": ["aiomarstek"],
   "quality_scale": "bronze",
   "requirements": [
-    "https://github.com/DominusEcho/aiomarstek/archive/18aeb71633f9173e49e1bc31d32e131deeaec792.zip#aiomarstek==0.1.7+dominusecho.1"
+    "https://github.com/DominusEcho/aiomarstek/archive/43efff89958b99a161fd9220d63ea0e0ea040f9d.zip#aiomarstek==0.1.7+dominusecho.2"
   ],
-  "version": "0.1.7.1"
+  "version": "0.1.7.2"
 }
