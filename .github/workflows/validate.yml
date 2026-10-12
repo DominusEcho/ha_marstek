@@ -43,3 +43,23 @@ jobs:
         with:
           category: integration
           ignore: license
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      # Keep the aiomarstek pin in requirements_test.txt in step with the
+      # requirements in manifest.json.
+      - name: Install test requirements
+        run: pip install -r requirements_test.txt
+
+      - name: Run tests
+        run: pytest

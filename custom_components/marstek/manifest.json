@@ -11,7 +11,7 @@
   "loggers": ["aiomarstek"],
   "quality_scale": "bronze",
   "requirements": [
-    "https://github.com/DominusEcho/aiomarstek/archive/57791009bcaa26afbb815fe136d7d86eeb05c4ec.zip#aiomarstek==0.1.7+dominusecho.3"
+    "https://github.com/DominusEcho/aiomarstek/archive/978f02a9c095fc5e5877282aef455bc5a6214f5a.zip#aiomarstek==0.1.7+dominusecho.4"
   ],
-  "version": "0.1.7.3"
+  "version": "0.1.7.4"
 }
