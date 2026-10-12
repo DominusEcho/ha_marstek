@@ -22,7 +22,7 @@
       "cloud": {
         "data": {
           "mailbox": "E-mail",
-          "password": "[%key:common::config_flow::data::password%]"
+          "password": "Password"
         },
         "data_description": {
           "mailbox": "The e-mail address of your Marstek (Marstek/Hame) app account.",
@@ -51,7 +51,7 @@
       },
       "manual": {
         "data": {
-          "host": "[%key:common::config_flow::data::host%]"
+          "host": "Host"
         },
         "data_description": {
           "host": "The IP address of your Marstek device on your local network."
@@ -71,9 +71,6 @@
   },
   "entity": {
     "sensor": {
-      "battery_cycles": {
-        "name": "Battery cycles"
-      },
       "battery_power": {
         "name": "Battery power"
       },
@@ -83,8 +80,8 @@
       "battery_status": {
         "name": "Battery status",
         "state": {
-          "charging": "[%key:common::state::charging%]",
-          "idle": "[%key:common::state::idle%]",
+          "charging": "Charging",
+          "idle": "Idle",
           "selling": "Selling"
         }
       },
@@ -143,7 +140,7 @@
       "pv_state": {
         "name": "PV input {input} state",
         "state": {
-          "standby": "[%key:common::state::standby%]",
+          "standby": "Standby",
           "working": "Working"
         }
       },
@@ -160,13 +157,16 @@
         "name": "Stored energy"
       },
       "total_grid_input_energy": {
-        "name": "Lifetime charged energy"
+        "name": "Grid input energy today"
       },
       "total_grid_output_energy": {
-        "name": "Lifetime discharged energy"
+        "name": "Grid output energy today"
+      },
+      "total_load_energy": {
+        "name": "Backup output energy today"
       },
       "total_pv_energy": {
-        "name": "Lifetime PV energy"
+        "name": "PV energy today"
       }
     }
   },

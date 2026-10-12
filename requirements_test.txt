@@ -1,2 +1,2 @@
 pytest-homeassistant-custom-component==0.13.372
-https://github.com/DominusEcho/aiomarstek/archive/978f02a9c095fc5e5877282aef455bc5a6214f5a.zip#aiomarstek==0.1.7+dominusecho.4
+https://github.com/DominusEcho/aiomarstek/archive/eff6298e97c12358081959e2ea79f0234dce5d4a.zip#aiomarstek==0.1.7+dominusecho.5

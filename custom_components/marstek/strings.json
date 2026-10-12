@@ -71,9 +71,6 @@
   },
   "entity": {
     "sensor": {
-      "battery_cycles": {
-        "name": "Battery cycles"
-      },
       "battery_power": {
         "name": "Battery power"
       },
@@ -160,13 +157,16 @@
         "name": "Stored energy"
       },
       "total_grid_input_energy": {
-        "name": "Lifetime charged energy"
+        "name": "Grid input energy today"
       },
       "total_grid_output_energy": {
-        "name": "Lifetime discharged energy"
+        "name": "Grid output energy today"
+      },
+      "total_load_energy": {
+        "name": "Backup output energy today"
       },
       "total_pv_energy": {
-        "name": "Lifetime PV energy"
+        "name": "PV energy today"
       }
     }
   },

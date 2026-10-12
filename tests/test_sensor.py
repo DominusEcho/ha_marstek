@@ -12,6 +12,7 @@ from pytest_homeassistant_custom_component.common import (
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
+from homeassistant.util import dt as dt_util
 
 from custom_components.marstek.const import DOMAIN
 
@@ -37,9 +38,9 @@ async def test_sensors(
     assert not any(key.startswith("pv") for key in ids)
     assert "total_pv_energy" not in ids
     assert state("battery_soc") == "9"
-    assert state("total_grid_output_energy") == "6950"
-    assert state("stored_energy") == "180.0"
-    assert state("battery_cycles") == "3.48"
+    assert state("total_grid_output_energy") == "695"
+    assert state("total_load_energy") == "12"
+    assert state("stored_energy") == "200"
     assert state("grid_power") == "2152"
     assert state("grid_phase_a_power") == "2068"
     assert state("grid_import_energy") == "0.0"
@@ -131,21 +132,55 @@ async def test_glitches_held(
 ) -> None:
     """Implausible readings keep the previous value."""
     ids = await setup_entry(hass, config_entry)
-    client.es_status.update(bat_soc=50, total_grid_output_energy=700)
+    client.es_status.update(bat_soc=50, bat_cap=1000, total_grid_output_energy=700)
     client.es_mode["bat_soc"] = 50
     await poll(hass, freezer)
     assert hass.states.get(ids["battery_soc"]).state == "50"
 
-    client.es_status.update(bat_soc=0, bat_cap=0, total_grid_output_energy=0)
+    client.es_status.update(bat_soc=0, bat_cap=0, total_grid_output_energy=300)
     client.es_mode["bat_soc"] = 0
     await poll(hass, freezer)
     assert hass.states.get(ids["battery_soc"]).state == "50"
-    assert hass.states.get(ids["total_grid_output_energy"]).state == "7000"
-    assert hass.states.get(ids["stored_energy"]).state == "1000.0"
+    assert hass.states.get(ids["total_grid_output_energy"]).state == "700"
+    assert hass.states.get(ids["stored_energy"]).state == "1000"
 
     client.es_status.update(total_grid_output_energy=705)
     await poll(hass, freezer)
-    assert hass.states.get(ids["total_grid_output_energy"]).state == "7050"
+    assert hass.states.get(ids["total_grid_output_energy"]).state == "705"
+
+
+async def test_daily_energy_reset(
+    hass: HomeAssistant,
+    client: FakeClient,
+    config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The energy counters' midnight reset is not held as a glitch."""
+    freezer.move_to(
+        datetime(2026, 10, 12, 23, 58, 30, tzinfo=dt_util.get_default_time_zone())
+    )
+    ids = await setup_entry(hass, config_entry)
+
+    def output() -> str:
+        return hass.states.get(ids["total_grid_output_energy"]).state
+
+    client.es_status["total_grid_output_energy"] = 2328
+    await poll(hass, freezer)
+    assert output() == "2328"
+
+    # The first reading of a new day starts from wherever the device is.
+    client.es_status["total_grid_output_energy"] = 500
+    await poll(hass, freezer)
+    assert output() == "500"
+
+    client.es_status["total_grid_output_energy"] = 400
+    await poll(hass, freezer)
+    assert output() == "500"
+
+    # A small reading is a reset whatever Home Assistant's clock says.
+    client.es_status["total_grid_output_energy"] = 20
+    await poll(hass, freezer)
+    assert output() == "20"
 
 
 async def test_setup_retries_when_device_silent(

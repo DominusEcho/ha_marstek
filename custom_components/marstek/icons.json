@@ -1,9 +1,6 @@
 {
   "entity": {
     "sensor": {
-      "battery_cycles": {
-        "default": "mdi:battery-sync"
-      },
       "battery_status": {
         "default": "mdi:battery"
       },

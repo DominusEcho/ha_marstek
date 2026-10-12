@@ -66,20 +66,6 @@ class MarstekGridEnergySensorEntityDescription(SensorEntityDescription):
     direction: int
 
 
-def _stored_energy(status: MarstekDeviceStatus) -> StateType:
-    """Return the energy currently stored, from capacity and battery level."""
-    if status.battery_capacity is None or status.battery_soc is None:
-        return None
-    return status.battery_capacity * status.battery_soc / 100
-
-
-def _battery_cycles(status: MarstekDeviceStatus) -> StateType:
-    """Return equivalent full cycles: lifetime discharged energy over capacity."""
-    if status.total_grid_output_energy is None or not status.battery_capacity:
-        return None
-    return round(status.total_grid_output_energy / status.battery_capacity, 2)
-
-
 def _pv_input_sensor_descriptions() -> tuple[MarstekSensorEntityDescription, ...]:
     """Build sensors for each of the device's four PV inputs."""
     descriptions: list[MarstekSensorEntityDescription] = []
@@ -162,6 +148,13 @@ SENSOR_DESCRIPTIONS: tuple[MarstekSensorEntityDescription, ...] = (
         state_class=SensorStateClass.TOTAL_INCREASING,
     ),
     MarstekSensorEntityDescription(
+        key="total_load_energy",
+        translation_key="total_load_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    MarstekSensorEntityDescription(
         key="grid_power",
         translation_key="grid_power",
         device_class=SensorDeviceClass.POWER,
@@ -186,15 +179,7 @@ SENSOR_DESCRIPTIONS: tuple[MarstekSensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=0,
-        value_fn=_stored_energy,
-    ),
-    MarstekSensorEntityDescription(
-        key="battery_cycles",
-        translation_key="battery_cycles",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        state_class=SensorStateClass.MEASUREMENT,
-        suggested_display_precision=1,
-        value_fn=_battery_cycles,
+        value_fn=lambda status: status.battery_energy,
     ),
     MarstekSensorEntityDescription(
         key="device_mode",

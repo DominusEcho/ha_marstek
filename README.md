@@ -34,18 +34,17 @@ After setup, the integration creates sensors for:
 
 - Battery level, power, and status.
 - Device operating mode (`Auto`, `AI`, `Manual`, `Passive`, or `UPS`).
-- Lifetime discharged and charged battery energy, for the battery in the Energy dashboard.
+- Grid output, grid input and backup output energy today: the energy the device fed to the grid side, drew from the grid, and fed to its backup (off-grid) socket. The device resets these counters at midnight.
 - Grid power, in total and per phase, when a CT meter is connected to the device.
 - Grid import and export energy, integrated from the CT meter's grid power, for the grid in the Energy dashboard. They only count while Home Assistant is running.
-- Stored energy, from the battery capacity and level.
-- Battery cycles (diagnostic): equivalent full cycles, the lifetime discharged energy divided by the battery capacity.
+- Stored energy: the energy left in the battery.
 - Last response and Error state (diagnostic): when the device last answered, and the outcome of the latest poll (`No error`, `No response`, `Network error`, or `Invalid data`). Both stay available while the device is not answering.
-- Venus A and Venus D only: lifetime PV energy, and for each of the four PV inputs, power, voltage, current, and state (`Standby` or `Working`).
+- Venus A and Venus D only: PV energy today, and for each of the four PV inputs, power, voltage, current, and state (`Standby` or `Working`).
 
 ### Energy dashboard
 
 - **Grid connections**: use *Grid import energy* for energy consumed from the grid and *Grid export energy* for energy returned to the grid.
-- **Home battery storage**: use *Lifetime discharged energy* for energy discharged from the battery and *Lifetime charged energy* for energy charged into the battery. Some firmware reports the charged energy as 0.
+- **Home battery storage**: use *Grid output energy today* for energy discharged from the battery. Some firmware, such as 301 on the Venus E Mini, reports *Grid input energy today* as 0 even while the battery charges. If yours does, integrate *Battery power* while *Battery status* is `Charging` with a template sensor and an **Integral** helper, and use that for energy charged into the battery.
 
 The device is polled locally every 60 seconds. No cloud account or external service is required.
 
@@ -57,7 +56,7 @@ After 10 missed polls (10 minutes), a repair issue appears under **Settings** > 
 
 ### Implausible readings
 
-Readings the device sometimes reports by mistake keep the previous value instead: lifetime energy counters that decrease, a battery capacity of 0, and a battery level of 0 % straight after a reading of 10 % or more. This keeps one bad reading from showing up as a spike in the Energy dashboard.
+Readings the device sometimes reports by mistake keep the previous value instead: energy counters that decrease other than at the midnight reset, and a battery level and stored energy of 0 straight after a battery level of 10 % or more. This keeps one bad reading from showing up as a spike in the Energy dashboard.
 
 ### Languages
 

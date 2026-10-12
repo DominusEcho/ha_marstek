@@ -71,9 +71,6 @@
     },
     "entity": {
         "sensor": {
-            "battery_cycles": {
-                "name": "Ciclos da bateria"
-            },
             "battery_power": {
                 "name": "Potência da bateria"
             },
@@ -160,13 +157,16 @@
                 "name": "Energia armazenada"
             },
             "total_grid_input_energy": {
-                "name": "Energia carregada total"
+                "name": "Energia de entrada da rede hoje"
             },
             "total_grid_output_energy": {
-                "name": "Energia descarregada total"
+                "name": "Energia de saída para a rede hoje"
+            },
+            "total_load_energy": {
+                "name": "Energia de saída de backup hoje"
             },
             "total_pv_energy": {
-                "name": "Energia FV total"
+                "name": "Energia FV hoje"
             }
         }
     },

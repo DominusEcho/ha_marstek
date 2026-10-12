@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 from homeassistant.util.hass_dict import HassKey
 
 from .const import (
@@ -34,13 +35,18 @@ UNAVAILABLE_POLLS = 2
 # API can hang until it is switched off and on again in the Marstek app.
 UNREACHABLE_POLLS = 10
 
-# Lifetime counters only ever grow; a lower reading is a device glitch and
-# would show up in the Energy dashboard as a meter reset.
-MONOTONIC_KEYS = (
+# Energy counters the device resets at midnight, despite their "total" names.
+# Otherwise they only grow, so a lower reading is a device glitch and would
+# show up in the Energy dashboard as a meter reset.
+DAILY_ENERGY_KEYS = (
     "total_pv_energy",
     "total_grid_output_energy",
     "total_grid_input_energy",
+    "total_load_energy",
 )
+# A lower reading this small is the midnight reset, even when the device's
+# clock and Home Assistant's disagree about when midnight is.
+DAILY_RESET_MAX_WH = 100
 # A battery level this high cannot drop to 0 % within one poll.
 SOC_GLITCH_FLOOR = 10
 
@@ -147,10 +153,15 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
                 self.failed_polls,
             )
             await self._async_refresh_firmware()
+        new_day = (
+            self.last_response is not None
+            and dt_util.as_local(last_response).date()
+            != dt_util.as_local(self.last_response).date()
+        )
         self.failed_polls = 0
         self.error_state = ERROR_NONE
         self.last_response = last_response
-        return hold_glitches(previous, status)
+        return hold_glitches(previous, status, new_day=new_day)
 
     def _missed_poll(
         self, previous: MarstekDeviceStatus | None, err: Exception
@@ -208,20 +219,30 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
 
 
 def hold_glitches(
-    previous: MarstekDeviceStatus | None, current: MarstekDeviceStatus
+    previous: MarstekDeviceStatus | None,
+    current: MarstekDeviceStatus,
+    *,
+    new_day: bool = False,
 ) -> MarstekDeviceStatus:
-    """Keep previous values where the device reports implausible readings."""
+    """Keep previous values where the device reports implausible readings.
+
+    new_day is set when the previous reading was from an earlier day, so the
+    daily energy counters may have been reset in between.
+    """
     if previous is None:
         return current
     held: dict[str, object] = {}
-    for key in MONOTONIC_KEYS:
+    for key in DAILY_ENERGY_KEYS:
         old, new = getattr(previous, key), getattr(current, key)
-        if old is not None and (new is None or new < old):
+        if old is None:
+            continue
+        if new is None or (new < old and not new_day and new > DAILY_RESET_MAX_WH):
             held[key] = old
-    if current.battery_soc == 0 and (previous.battery_soc or 0) >= SOC_GLITCH_FLOOR:
+    soc_glitch = (previous.battery_soc or 0) >= SOC_GLITCH_FLOOR
+    if current.battery_soc == 0 and soc_glitch:
         held["battery_soc"] = previous.battery_soc
-    if current.battery_capacity == 0 and previous.battery_capacity:
-        held["battery_capacity"] = previous.battery_capacity
+    if current.battery_energy == 0 and previous.battery_energy and soc_glitch:
+        held["battery_energy"] = previous.battery_energy
     if held:
         _LOGGER.debug(
             "Device %s implausible readings held: %s", current.device_ip, held
