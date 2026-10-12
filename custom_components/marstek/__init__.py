@@ -5,15 +5,29 @@ import logging
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.util.hass_dict import HassKey
 
-from .const import DOMAIN
+from .cloud import MarstekCloudClient
+from .cloud_coordinator import MarstekCloudConfigEntry, MarstekCloudCoordinator
+from .const import (
+    CONF_DEVICES,
+    CONF_MAILBOX,
+    CONF_PASSWORD_HASH,
+    CONF_TOKEN,
+    DOMAIN,
+)
 from .coordinator import (
     MARSTEK_UDP_CLIENT,
     MarstekConfigEntry,
     MarstekDataUpdateCoordinator,
 )
 from .helpers import async_create_udp_client
+
+# Shared cloud clients, one per account, so the devices of an account share a
+# token and collapse their polls into a single cloud request.
+CLOUD_CLIENTS: HassKey[dict[str, MarstekCloudClient]] = HassKey(f"{DOMAIN}_cloud")
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,16 +55,50 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> bool:
+async def async_setup_entry(
+    hass: HomeAssistant, entry: MarstekConfigEntry | MarstekCloudConfigEntry
+) -> bool:
     """Set up Marstek from a config entry."""
-    coordinator = MarstekDataUpdateCoordinator(
-        hass, entry, hass.data[MARSTEK_UDP_CLIENT]
-    )
-    entry.runtime_data = coordinator
-    await coordinator.async_config_entry_first_refresh()
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    if CONF_MAILBOX in entry.data:
+        await _async_setup_cloud_entry(hass, entry)
+    else:
+        coordinator = MarstekDataUpdateCoordinator(
+            hass, entry, hass.data[MARSTEK_UDP_CLIENT]
+        )
+        entry.runtime_data = coordinator
+        await coordinator.async_config_entry_first_refresh()
 
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+async def _async_setup_cloud_entry(
+    hass: HomeAssistant, entry: MarstekCloudConfigEntry
+) -> None:
+    """Set up a cloud account entry with a coordinator per selected device."""
+    client = _async_cloud_client(hass, entry)
+    coordinators: dict[str, MarstekCloudCoordinator] = {}
+    for devid in entry.data[CONF_DEVICES]:
+        coordinator = MarstekCloudCoordinator(hass, entry, client, devid)
+        await coordinator.async_config_entry_first_refresh()
+        coordinators[devid] = coordinator
+    entry.runtime_data = coordinators
+
+
+def _async_cloud_client(
+    hass: HomeAssistant, entry: MarstekCloudConfigEntry
+) -> MarstekCloudClient:
+    """Return the shared cloud client for the entry's account, creating it once."""
+    clients = hass.data.setdefault(CLOUD_CLIENTS, {})
+    mailbox: str = entry.data[CONF_MAILBOX]
+    if mailbox not in clients:
+        clients[mailbox] = MarstekCloudClient(
+            async_get_clientsession(hass),
+            mailbox,
+            entry.data[CONF_PASSWORD_HASH],
+            entry.data.get(CONF_TOKEN),
+        )
+    return clients[mailbox]
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> bool:

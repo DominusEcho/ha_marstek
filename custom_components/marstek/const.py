@@ -10,6 +10,18 @@ CONF_VERSION: Final = "version"
 CONF_WIFI_MAC: Final = "wifi_mac"
 CONF_WIFI_NAME: Final = "wifi_name"
 
+# Cloud account config-entry keys. An entry holding CONF_MAILBOX is a cloud
+# account (owning one or more devices); any other entry is a locally polled
+# device.
+CONF_MAILBOX: Final = "mailbox"
+CONF_PASSWORD_HASH: Final = "password_hash"  # noqa: S105
+CONF_TOKEN: Final = "token"  # noqa: S105
+CONF_DEVICES: Final = "devices"
+
+# Cloud device types that expose PV (solar) production, such as the Marstek
+# micro-inverters whose type starts with "HMI".
+CLOUD_PV_TYPE_PREFIX: Final = "HMI"
+
 SUPPORTED_DEVICE_TYPES: Final[frozenset[str]] = frozenset(
     {
         "VNSE3-0",

@@ -9,6 +9,8 @@
             "cannot_connect": "Não foi possível ligar ao dispositivo",
             "device_not_found": "Nenhum dispositivo encontrado no endereço IP indicado",
             "discovery_failed": "A procura de dispositivos falhou. Verifique a ligação à rede e tente novamente.",
+            "invalid_auth": "E-mail ou palavra-passe da conta Marstek incorretos",
+            "no_cloud_devices": "Não foram encontrados dispositivos nesta conta Marstek",
             "no_devices_found": "Nenhum dispositivo Marstek encontrado na rede. Verifique se o dispositivo está ligado e na mesma rede.",
             "unsupported_device": "Este tipo de dispositivo Marstek ainda não é suportado"
         },
@@ -17,6 +19,27 @@
             "title": "Procura de dispositivos Marstek"
         },
         "step": {
+            "cloud": {
+                "data": {
+                    "mailbox": "E-mail",
+                    "password": "Palavra-passe"
+                },
+                "data_description": {
+                    "mailbox": "O endereço de e-mail da sua conta da aplicação Marstek (Marstek/Hame).",
+                    "password": "A palavra-passe da sua conta da aplicação Marstek. É usada uma vez para obter um token e não é guardada em texto simples."
+                },
+                "description": "Inicie sessão com a sua conta da aplicação Marstek para adicionar dispositivos através da cloud Marstek. Use para dispositivos sem API local, como os micro-inversores Marstek.",
+                "title": "Conta cloud Marstek"
+            },
+            "cloud_select": {
+                "data": {
+                    "devices": "Dispositivos"
+                },
+                "data_description": {
+                    "devices": "Selecione que dispositivos da sua conta Marstek adicionar ao Home Assistant."
+                },
+                "title": "Selecionar dispositivos da cloud"
+            },
             "discover": {
                 "data": {
                     "device": "Selecionar dispositivo"
@@ -38,6 +61,7 @@
             },
             "user": {
                 "menu_options": {
+                    "cloud": "Adicionar dispositivos através da conta cloud Marstek",
                     "discover": "Procurar dispositivos na rede local",
                     "manual": "Introduzir o endereço IP do dispositivo"
                 },
@@ -63,6 +87,12 @@
                     "idle": "Inativa",
                     "selling": "A descarregar"
                 }
+            },
+            "charge_power": {
+                "name": "Potência de carga"
+            },
+            "discharge_power": {
+                "name": "Potência de descarga"
             },
             "device_mode": {
                 "name": "Modo do dispositivo",
@@ -95,8 +125,14 @@
             "grid_power": {
                 "name": "Potência da rede"
             },
+            "last_report": {
+                "name": "Último relatório da cloud"
+            },
             "last_response": {
                 "name": "Última resposta"
+            },
+            "load_power": {
+                "name": "Potência de consumo"
             },
             "pv_current": {
                 "name": "Corrente da entrada FV {input}"
@@ -114,6 +150,12 @@
             "pv_voltage": {
                 "name": "Tensão da entrada FV {input}"
             },
+            "solar_energy": {
+                "name": "Energia solar"
+            },
+            "solar_power": {
+                "name": "Potência solar"
+            },
             "stored_energy": {
                 "name": "Energia armazenada"
             },
@@ -129,6 +171,12 @@
         }
     },
     "exceptions": {
+        "cloud_device_missing": {
+            "message": "A cloud Marstek já não lista o dispositivo {devid}."
+        },
+        "cloud_update_failed": {
+            "message": "Não foi possível obter o dispositivo Marstek {devid} da cloud."
+        },
         "device_connection_failed": {
             "message": "Não foi possível ligar ao dispositivo Marstek em {host}."
         },

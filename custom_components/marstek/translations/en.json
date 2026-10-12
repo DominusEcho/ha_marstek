@@ -1,154 +1,202 @@
 {
-    "config": {
-        "abort": {
-            "already_configured": "Device is already configured",
-            "missing_unique_id": "Device did not provide a stable unique identifier",
-            "unsupported_device": "This Marstek device type is not currently supported"
-        },
-        "error": {
-            "cannot_connect": "Unable to connect to the device",
-            "device_not_found": "Device not found at the specified IP address",
-            "discovery_failed": "Failed to discover devices. Please check your network connection and try again.",
-            "no_devices_found": "No Marstek devices found on the network. Please ensure your device is powered on and connected to the same network.",
-            "unsupported_device": "This Marstek device type is not currently supported"
-        },
-        "progress": {
-            "discover": "Searching for Marstek devices on the local network",
-            "title": "Marstek device discovery"
-        },
-        "step": {
-            "discover": {
-                "data": {
-                    "device": "Select Device"
-                },
-                "data_description": {
-                    "device": "The Marstek device discovered on your local network."
-                },
-                "title": "Marstek Energy Storage"
-            },
-            "manual": {
-                "data": {
-                    "host": "Host"
-                },
-                "data_description": {
-                    "host": "The IP address of your Marstek device on your local network."
-                },
-                "description": "Enter the IP address of your Marstek device. The device must be on the same local network and have Open API enabled.",
-                "title": "Add Marstek device"
-            },
-            "user": {
-                "menu_options": {
-                    "discover": "Search for devices on the local network",
-                    "manual": "Enter device IP address"
-                },
-                "title": "Marstek Energy Storage"
-            }
-        }
+  "config": {
+    "abort": {
+      "already_configured": "Device is already configured",
+      "missing_unique_id": "Device did not provide a stable unique identifier",
+      "unsupported_device": "This Marstek device type is not currently supported"
     },
-    "entity": {
-        "sensor": {
-            "battery_cycles": {
-                "name": "Battery cycles"
-            },
-            "battery_power": {
-                "name": "Battery power"
-            },
-            "battery_soc": {
-                "name": "Battery level"
-            },
-            "battery_status": {
-                "name": "Battery status",
-                "state": {
-                    "charging": "Charging",
-                    "idle": "Idle",
-                    "selling": "Selling"
-                }
-            },
-            "device_mode": {
-                "name": "Device mode",
-                "state": {
-                    "ai": "AI",
-                    "auto": "Auto",
-                    "manual": "Manual",
-                    "passive": "Passive",
-                    "ups": "UPS"
-                }
-            },
-            "error_state": {
-                "name": "Error state",
-                "state": {
-                    "none": "No error",
-                    "no_response": "No response",
-                    "network_error": "Network error",
-                    "invalid_data": "Invalid data"
-                }
-            },
-            "grid_export_energy": {
-                "name": "Grid export energy"
-            },
-            "grid_import_energy": {
-                "name": "Grid import energy"
-            },
-            "grid_phase_power": {
-                "name": "Grid phase {phase} power"
-            },
-            "grid_power": {
-                "name": "Grid power"
-            },
-            "last_response": {
-                "name": "Last response"
-            },
-            "pv_current": {
-                "name": "PV input {input} current"
-            },
-            "pv_power": {
-                "name": "PV input {input} power"
-            },
-            "pv_state": {
-                "name": "PV input {input} state",
-                "state": {
-                    "standby": "Standby",
-                    "working": "Working"
-                }
-            },
-            "pv_voltage": {
-                "name": "PV input {input} voltage"
-            },
-            "stored_energy": {
-                "name": "Stored energy"
-            },
-            "total_grid_input_energy": {
-                "name": "Lifetime charged energy"
-            },
-            "total_grid_output_energy": {
-                "name": "Lifetime discharged energy"
-            },
-            "total_pv_energy": {
-                "name": "Lifetime PV energy"
-            }
-        }
+    "error": {
+      "cannot_connect": "Unable to connect to the device",
+      "device_not_found": "Device not found at the specified IP address",
+      "discovery_failed": "Failed to discover devices. Please check your network connection and try again.",
+      "invalid_auth": "Incorrect e-mail or password for your Marstek account",
+      "no_cloud_devices": "No devices were found on this Marstek account",
+      "no_devices_found": "No Marstek devices found on the network. Please ensure your device is powered on and connected to the same network.",
+      "unsupported_device": "This Marstek device type is not currently supported"
     },
-    "exceptions": {
-        "device_connection_failed": {
-            "message": "Unable to connect to the Marstek device at {host}."
-        },
-        "device_update_failed": {
-            "message": "Unable to update the Marstek device at {host}."
-        },
-        "invalid_device_data": {
-            "message": "The Marstek device at {host} returned invalid data."
-        },
-        "missing_stable_id": {
-            "message": "The Marstek device at {host} did not provide a stable ID."
-        },
-        "unsupported_device": {
-            "message": "The Marstek device type {device_type} is not currently supported."
-        }
+    "progress": {
+      "discover": "Searching for Marstek devices on the local network",
+      "title": "Marstek device discovery"
     },
-    "issues": {
-        "open_api_unreachable": {
-            "title": "Marstek device at {host} is not responding",
-            "description": "The Marstek device at {host} has not answered its local API for 10 minutes. Its values are shown as unavailable.\n\nCheck that the device is powered on and connected to your network. If it is, its local API has probably stopped responding: in the Marstek app, switch Open API off and on again. This issue clears itself as soon as the device answers again."
-        }
+    "step": {
+      "cloud": {
+        "data": {
+          "mailbox": "E-mail",
+          "password": "[%key:common::config_flow::data::password%]"
+        },
+        "data_description": {
+          "mailbox": "The e-mail address of your Marstek (Marstek/Hame) app account.",
+          "password": "The password for your Marstek app account. It is used once to obtain a token and is not stored in plain text."
+        },
+        "description": "Sign in with your Marstek app account to add devices through the Marstek cloud. Use this for devices without a local API, such as the Marstek micro-inverters.",
+        "title": "Marstek cloud account"
+      },
+      "cloud_select": {
+        "data": {
+          "devices": "Devices"
+        },
+        "data_description": {
+          "devices": "Select which devices from your Marstek account to add to Home Assistant."
+        },
+        "title": "Select cloud devices"
+      },
+      "discover": {
+        "data": {
+          "device": "Select Device"
+        },
+        "data_description": {
+          "device": "The Marstek device discovered on your local network."
+        },
+        "title": "Marstek Energy Storage"
+      },
+      "manual": {
+        "data": {
+          "host": "[%key:common::config_flow::data::host%]"
+        },
+        "data_description": {
+          "host": "The IP address of your Marstek device on your local network."
+        },
+        "description": "Enter the IP address of your Marstek device. The device must be on the same local network and have Open API enabled.",
+        "title": "Add Marstek device"
+      },
+      "user": {
+        "menu_options": {
+          "cloud": "Add devices through the Marstek cloud account",
+          "discover": "Search for devices on the local network",
+          "manual": "Enter device IP address"
+        },
+        "title": "Marstek Energy Storage"
+      }
     }
-}
+  },
+  "entity": {
+    "sensor": {
+      "battery_cycles": {
+        "name": "Battery cycles"
+      },
+      "battery_power": {
+        "name": "Battery power"
+      },
+      "battery_soc": {
+        "name": "Battery level"
+      },
+      "battery_status": {
+        "name": "Battery status",
+        "state": {
+          "charging": "[%key:common::state::charging%]",
+          "idle": "[%key:common::state::idle%]",
+          "selling": "Selling"
+        }
+      },
+      "charge_power": {
+        "name": "Charge power"
+      },
+      "discharge_power": {
+        "name": "Discharge power"
+      },
+      "device_mode": {
+        "name": "Device mode",
+        "state": {
+          "ai": "AI",
+          "auto": "Auto",
+          "manual": "Manual",
+          "passive": "Passive",
+          "ups": "UPS"
+        }
+      },
+      "error_state": {
+        "name": "Error state",
+        "state": {
+          "none": "No error",
+          "no_response": "No response",
+          "network_error": "Network error",
+          "invalid_data": "Invalid data"
+        }
+      },
+      "grid_export_energy": {
+        "name": "Grid export energy"
+      },
+      "grid_import_energy": {
+        "name": "Grid import energy"
+      },
+      "grid_phase_power": {
+        "name": "Grid phase {phase} power"
+      },
+      "grid_power": {
+        "name": "Grid power"
+      },
+      "last_report": {
+        "name": "Last cloud report"
+      },
+      "last_response": {
+        "name": "Last response"
+      },
+      "load_power": {
+        "name": "Load power"
+      },
+      "pv_current": {
+        "name": "PV input {input} current"
+      },
+      "pv_power": {
+        "name": "PV input {input} power"
+      },
+      "pv_state": {
+        "name": "PV input {input} state",
+        "state": {
+          "standby": "[%key:common::state::standby%]",
+          "working": "Working"
+        }
+      },
+      "pv_voltage": {
+        "name": "PV input {input} voltage"
+      },
+      "solar_energy": {
+        "name": "Solar energy"
+      },
+      "solar_power": {
+        "name": "Solar power"
+      },
+      "stored_energy": {
+        "name": "Stored energy"
+      },
+      "total_grid_input_energy": {
+        "name": "Lifetime charged energy"
+      },
+      "total_grid_output_energy": {
+        "name": "Lifetime discharged energy"
+      },
+      "total_pv_energy": {
+        "name": "Lifetime PV energy"
+      }
+    }
+  },
+  "exceptions": {
+    "cloud_device_missing": {
+      "message": "The Marstek cloud no longer lists the device {devid}."
+    },
+    "cloud_update_failed": {
+      "message": "Unable to fetch the Marstek device {devid} from the cloud."
+    },
+    "device_connection_failed": {
+      "message": "Unable to connect to the Marstek device at {host}."
+    },
+    "device_update_failed": {
+      "message": "Unable to update the Marstek device at {host}."
+    },
+    "invalid_device_data": {
+      "message": "The Marstek device at {host} returned invalid data."
+    },
+    "missing_stable_id": {
+      "message": "The Marstek device at {host} did not provide a stable ID."
+    },
+    "unsupported_device": {
+      "message": "The Marstek device type {device_type} is not currently supported."
+    }
+  },
+  "issues": {
+    "open_api_unreachable": {
+      "title": "Marstek device at {host} is not responding",
+      "description": "The Marstek device at {host} has not answered its local API for 10 minutes. Its values are shown as unavailable.\n\nCheck that the device is powered on and connected to your network. If it is, its local API has probably stopped responding: in the Marstek app, switch Open API off and on again. This issue clears itself as soon as the device answers again."
+    }
+  }
+}

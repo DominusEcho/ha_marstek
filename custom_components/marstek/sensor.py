@@ -28,15 +28,19 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
+from .cloud import MarstekCloudDevice
+from .cloud_coordinator import MarstekCloudConfigEntry, MarstekCloudCoordinator
 from .const import (
     BATTERY_STATUS_OPTIONS,
+    CLOUD_PV_TYPE_PREFIX,
+    CONF_MAILBOX,
     DEVICE_MODE_OPTIONS,
     ERROR_STATE_OPTIONS,
     PV_DEVICE_TYPES,
     PV_STATE_OPTIONS,
 )
 from .coordinator import MarstekConfigEntry
-from .entity import MarstekEntity
+from .entity import MarstekCloudEntity, MarstekEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -250,10 +254,14 @@ ERROR_STATE_SENSOR_DESCRIPTION = SensorEntityDescription(
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: MarstekConfigEntry,
+    config_entry: MarstekConfigEntry | MarstekCloudConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Marstek sensors based on a config entry."""
+    if CONF_MAILBOX in config_entry.data:
+        _async_setup_cloud_entry(config_entry, async_add_entities)
+        return
+
     coordinator = config_entry.runtime_data
     device_ip = coordinator.device_ip
     _LOGGER.debug("Setting up Marstek sensors: %s", device_ip)
@@ -375,3 +383,197 @@ class MarstekErrorStateSensor(MarstekEntity, SensorEntity):
     def native_value(self) -> str:
         """Return the error state of the latest poll."""
         return self.coordinator.error_state
+
+
+@dataclass(frozen=True, kw_only=True)
+class MarstekCloudSensorEntityDescription(SensorEntityDescription):
+    """Describe a cloud Marstek sensor entity."""
+
+    value_fn: Callable[[MarstekCloudDevice], StateType]
+    # Only create this sensor for devices that have PV / a battery.
+    requires_pv: bool = False
+    requires_battery: bool = False
+
+
+CLOUD_SENSOR_DESCRIPTIONS: tuple[MarstekCloudSensorEntityDescription, ...] = (
+    MarstekCloudSensorEntityDescription(
+        key="cloud_pv_power",
+        translation_key="solar_power",
+        device_class=SensorDeviceClass.POWER,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: device.pv_power,
+        requires_pv=True,
+    ),
+    MarstekCloudSensorEntityDescription(
+        key="cloud_grid_power",
+        translation_key="grid_power",
+        device_class=SensorDeviceClass.POWER,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: device.grid_power,
+    ),
+    MarstekCloudSensorEntityDescription(
+        key="cloud_load_power",
+        translation_key="load_power",
+        device_class=SensorDeviceClass.POWER,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: device.load_power,
+    ),
+    MarstekCloudSensorEntityDescription(
+        key="cloud_charge_power",
+        translation_key="charge_power",
+        device_class=SensorDeviceClass.POWER,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: device.charge_power,
+        requires_battery=True,
+    ),
+    MarstekCloudSensorEntityDescription(
+        key="cloud_discharge_power",
+        translation_key="discharge_power",
+        device_class=SensorDeviceClass.POWER,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: device.discharge_power,
+        requires_battery=True,
+    ),
+    MarstekCloudSensorEntityDescription(
+        key="cloud_battery_soc",
+        translation_key="battery_soc",
+        device_class=SensorDeviceClass.BATTERY,
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: device.battery_soc,
+        requires_battery=True,
+    ),
+)
+
+
+def _async_setup_cloud_entry(
+    config_entry: MarstekCloudConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
+    """Set up sensors for every device of a cloud account entry."""
+    sensors: list[SensorEntity] = []
+    for coordinator in config_entry.runtime_data.values():
+        device = coordinator.data
+        has_pv = device.device_type.startswith(CLOUD_PV_TYPE_PREFIX)
+        has_battery = device.battery_num >= 1
+
+        sensors.extend(
+            MarstekCloudSensor(coordinator, description)
+            for description in CLOUD_SENSOR_DESCRIPTIONS
+            if (not description.requires_pv or has_pv)
+            and (not description.requires_battery or has_battery)
+        )
+        if has_pv:
+            sensors.append(MarstekCloudSolarEnergySensor(coordinator))
+        sensors.append(MarstekCloudLastReportSensor(coordinator))
+
+    _LOGGER.debug("Cloud account sensors set up, total %d", len(sensors))
+    async_add_entities(sensors)
+
+
+class MarstekCloudSensor(MarstekCloudEntity, SensorEntity):
+    """Representation of a cloud Marstek sensor."""
+
+    entity_description: MarstekCloudSensorEntityDescription
+
+    @property
+    @override
+    def native_value(self) -> StateType:
+        """Return the state of the sensor."""
+        return self.entity_description.value_fn(self.coordinator.data)
+
+
+SOLAR_ENERGY_DESCRIPTION = SensorEntityDescription(
+    key="cloud_solar_energy",
+    translation_key="solar_energy",
+    device_class=SensorDeviceClass.ENERGY,
+    native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+    state_class=SensorStateClass.TOTAL_INCREASING,
+    suggested_display_precision=0,
+)
+
+
+class MarstekCloudSolarEnergySensor(MarstekCloudEntity, RestoreSensor):
+    """Solar energy integrated from the cloud PV power readings.
+
+    The cloud only reports instantaneous PV power, so energy for the Energy
+    dashboard is accumulated here with a left Riemann sum, the same way the
+    local CT-meter grid energy is derived.
+    """
+
+    _energy: float | None = None
+    _last_power: float | None = None
+    _last_update: datetime | None = None
+
+    def __init__(self, coordinator: MarstekCloudCoordinator) -> None:
+        """Initialize the solar energy sensor."""
+        super().__init__(coordinator, SOLAR_ENERGY_DESCRIPTION)
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Restore the energy total accumulated before a restart."""
+        await super().async_added_to_hass()
+        if (last_data := await self.async_get_last_sensor_data()) is not None and (
+            isinstance(last_data.native_value, int | float)
+        ):
+            self._energy = float(last_data.native_value)
+        self._record_power()
+
+    @callback
+    @override
+    def _handle_coordinator_update(self) -> None:
+        """Add the energy produced since the previous poll (left Riemann sum)."""
+        now = dt_util.utcnow()
+        if self._last_power is not None and self._last_update is not None:
+            elapsed = now - self._last_update
+            if elapsed <= MAX_GRID_ENERGY_INTERVAL:
+                power = max(self._last_power, 0)
+                self._energy = (self._energy or 0.0) + (
+                    power * elapsed.total_seconds() / 3600
+                )
+        self._record_power(now)
+        super()._handle_coordinator_update()
+
+    def _record_power(self, now: datetime | None = None) -> None:
+        """Remember the current PV power as the start of the next interval."""
+        power = self.coordinator.data.pv_power
+        self._last_power = float(power) if power is not None else None
+        self._last_update = now or dt_util.utcnow()
+        if self._last_power is not None and self._energy is None:
+            self._energy = 0.0
+
+    @property
+    @override
+    def native_value(self) -> float | None:
+        """Return the accumulated solar energy."""
+        return self._energy
+
+
+LAST_REPORT_DESCRIPTION = SensorEntityDescription(
+    key="cloud_last_report",
+    translation_key="last_report",
+    device_class=SensorDeviceClass.TIMESTAMP,
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+
+class MarstekCloudLastReportSensor(MarstekCloudEntity, SensorEntity):
+    """When the device last reported to the cloud."""
+
+    def __init__(self, coordinator: MarstekCloudCoordinator) -> None:
+        """Initialize the last-report sensor."""
+        super().__init__(coordinator, LAST_REPORT_DESCRIPTION)
+
+    @property
+    @override
+    def native_value(self) -> datetime | None:
+        """Return the device's last cloud report time."""
+        report_time = self.coordinator.data.report_time
+        if not report_time:
+            return None
+        return dt_util.utc_from_timestamp(report_time)

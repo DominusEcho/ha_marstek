@@ -9,6 +9,8 @@
       "cannot_connect": "Unable to connect to the device",
       "device_not_found": "Device not found at the specified IP address",
       "discovery_failed": "Failed to discover devices. Please check your network connection and try again.",
+      "invalid_auth": "Incorrect e-mail or password for your Marstek account",
+      "no_cloud_devices": "No devices were found on this Marstek account",
       "no_devices_found": "No Marstek devices found on the network. Please ensure your device is powered on and connected to the same network.",
       "unsupported_device": "This Marstek device type is not currently supported"
     },
@@ -17,6 +19,27 @@
       "title": "Marstek device discovery"
     },
     "step": {
+      "cloud": {
+        "data": {
+          "mailbox": "E-mail",
+          "password": "[%key:common::config_flow::data::password%]"
+        },
+        "data_description": {
+          "mailbox": "The e-mail address of your Marstek (Marstek/Hame) app account.",
+          "password": "The password for your Marstek app account. It is used once to obtain a token and is not stored in plain text."
+        },
+        "description": "Sign in with your Marstek app account to add devices through the Marstek cloud. Use this for devices without a local API, such as the Marstek micro-inverters.",
+        "title": "Marstek cloud account"
+      },
+      "cloud_select": {
+        "data": {
+          "devices": "Devices"
+        },
+        "data_description": {
+          "devices": "Select which devices from your Marstek account to add to Home Assistant."
+        },
+        "title": "Select cloud devices"
+      },
       "discover": {
         "data": {
           "device": "Select Device"
@@ -38,6 +61,7 @@
       },
       "user": {
         "menu_options": {
+          "cloud": "Add devices through the Marstek cloud account",
           "discover": "Search for devices on the local network",
           "manual": "Enter device IP address"
         },
@@ -63,6 +87,12 @@
           "idle": "[%key:common::state::idle%]",
           "selling": "Selling"
         }
+      },
+      "charge_power": {
+        "name": "Charge power"
+      },
+      "discharge_power": {
+        "name": "Discharge power"
       },
       "device_mode": {
         "name": "Device mode",
@@ -95,8 +125,14 @@
       "grid_power": {
         "name": "Grid power"
       },
+      "last_report": {
+        "name": "Last cloud report"
+      },
       "last_response": {
         "name": "Last response"
+      },
+      "load_power": {
+        "name": "Load power"
       },
       "pv_current": {
         "name": "PV input {input} current"
@@ -114,6 +150,12 @@
       "pv_voltage": {
         "name": "PV input {input} voltage"
       },
+      "solar_energy": {
+        "name": "Solar energy"
+      },
+      "solar_power": {
+        "name": "Solar power"
+      },
       "stored_energy": {
         "name": "Stored energy"
       },
@@ -129,6 +171,12 @@
     }
   },
   "exceptions": {
+    "cloud_device_missing": {
+      "message": "The Marstek cloud no longer lists the device {devid}."
+    },
+    "cloud_update_failed": {
+      "message": "Unable to fetch the Marstek device {devid} from the cloud."
+    },
     "device_connection_failed": {
       "message": "Unable to connect to the Marstek device at {host}."
     },

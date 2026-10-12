@@ -9,17 +9,31 @@ from probatio import Required, Schema
 
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
-from homeassistant.const import CONF_DEVICE, CONF_HOST, CONF_MAC
+from homeassistant.const import CONF_DEVICE, CONF_HOST, CONF_MAC, CONF_PASSWORD
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
     TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
 )
 
+from .cloud import (
+    MarstekCloudAuthError,
+    MarstekCloudClient,
+    MarstekCloudDevice,
+    MarstekCloudError,
+    hash_password,
+)
 from .const import (
     CONF_BLE_MAC,
     CONF_DEVICE_TYPE,
+    CONF_DEVICES,
+    CONF_MAILBOX,
+    CONF_PASSWORD_HASH,
+    CONF_TOKEN,
     CONF_VERSION,
     CONF_WIFI_MAC,
     CONF_WIFI_NAME,
@@ -32,6 +46,16 @@ from .helpers import async_create_udp_client
 _LOGGER = logging.getLogger(__name__)
 
 STEP_MANUAL_DATA_SCHEMA = Schema({Required(CONF_HOST): TextSelector()})
+STEP_CLOUD_DATA_SCHEMA = Schema(
+    {
+        Required(CONF_MAILBOX): TextSelector(
+            TextSelectorConfig(type=TextSelectorType.EMAIL)
+        ),
+        Required(CONF_PASSWORD): TextSelector(
+            TextSelectorConfig(type=TextSelectorType.PASSWORD)
+        ),
+    }
+)
 
 
 class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -44,6 +68,10 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.discovery_task: asyncio.Task[None] | None = None
         self.discovered_devices: list[MarstekDeviceInfo] = []
         self.discovery_error: str | None = None
+        self._cloud_mailbox: str = ""
+        self._cloud_password_hash: str = ""
+        self._cloud_token: str | None = None
+        self._cloud_devices: dict[str, MarstekCloudDevice] = {}
 
     @override
     async def async_step_user(
@@ -52,7 +80,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle the initial step."""
         return self.async_show_menu(
             step_id="user",
-            menu_options=["discover", "manual"],
+            menu_options=["discover", "manual", "cloud"],
         )
 
     async def async_step_discover(
@@ -211,6 +239,81 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="manual",
             data_schema=STEP_MANUAL_DATA_SCHEMA,
             errors=errors,
+        )
+
+    async def async_step_cloud(
+        self, user_input: dict[str, object] | None = None
+    ) -> ConfigFlowResult:
+        """Handle Marstek cloud account login."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            mailbox = str(user_input[CONF_MAILBOX]).strip()
+            password_hash = hash_password(str(user_input[CONF_PASSWORD]))
+            client = MarstekCloudClient(
+                async_get_clientsession(self.hass), mailbox, password_hash
+            )
+            try:
+                await client.async_login()
+                devices = await client.async_get_devices()
+            except MarstekCloudAuthError:
+                errors["base"] = "invalid_auth"
+            except MarstekCloudError:
+                errors["base"] = "cannot_connect"
+            else:
+                if not devices:
+                    errors["base"] = "no_cloud_devices"
+                else:
+                    self._cloud_mailbox = mailbox
+                    self._cloud_password_hash = password_hash
+                    self._cloud_token = client.token
+                    self._cloud_devices = devices
+                    return await self.async_step_cloud_select()
+
+        return self.async_show_form(
+            step_id="cloud", data_schema=STEP_CLOUD_DATA_SCHEMA, errors=errors
+        )
+
+    async def async_step_cloud_select(
+        self, user_input: dict[str, object] | None = None
+    ) -> ConfigFlowResult:
+        """Let the user choose which cloud devices to add."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            selected = list(user_input[CONF_DEVICES])
+            if not selected:
+                errors["base"] = "no_cloud_devices"
+            else:
+                await self.async_set_unique_id(f"cloud_{self._cloud_mailbox}")
+                self._abort_if_unique_id_configured()
+
+                return self.async_create_entry(
+                    title=f"Marstek cloud ({self._cloud_mailbox})",
+                    data={
+                        CONF_MAILBOX: self._cloud_mailbox,
+                        CONF_PASSWORD_HASH: self._cloud_password_hash,
+                        CONF_TOKEN: self._cloud_token,
+                        CONF_DEVICES: selected,
+                    },
+                )
+
+        options = [
+            SelectOptionDict(
+                value=device.devid,
+                label=f"{device.name} ({device.device_type})",
+            )
+            for device in self._cloud_devices.values()
+        ]
+        data_schema = Schema(
+            {
+                Required(CONF_DEVICES): SelectSelector(
+                    SelectSelectorConfig(options=options, multiple=True)
+                )
+            }
+        )
+        return self.async_show_form(
+            step_id="cloud_select", data_schema=data_schema, errors=errors
         )
 
     async def _async_get_device_from_host(self, host: str) -> MarstekDeviceInfo:
