@@ -8,7 +8,7 @@ from aiomarstek import MarstekDeviceInfo
 from probatio import Required, Schema
 
 from homeassistant import config_entries
-from homeassistant.config_entries import ConfigFlowResult
+from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigFlowResult
 from homeassistant.const import CONF_DEVICE, CONF_HOST, CONF_MAC, CONF_PASSWORD
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
@@ -284,6 +284,14 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             selected = list(user_input[CONF_DEVICES])
             if not selected:
                 errors["base"] = "no_cloud_devices"
+            elif self.source == SOURCE_RECONFIGURE:
+                return self.async_update_reload_and_abort(
+                    self._get_reconfigure_entry(),
+                    data_updates={
+                        CONF_TOKEN: self._cloud_token,
+                        CONF_DEVICES: selected,
+                    },
+                )
             else:
                 await self.async_set_unique_id(f"cloud_{self._cloud_mailbox}")
                 self._abort_if_unique_id_configured()
@@ -312,9 +320,49 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             }
         )
+        if self.source == SOURCE_RECONFIGURE:
+            # Pre-tick the devices already added, skipping any the cloud no
+            # longer lists so the form does not offer an unknown option.
+            current = [
+                devid
+                for devid in self._get_reconfigure_entry().data[CONF_DEVICES]
+                if devid in self._cloud_devices
+            ]
+            data_schema = self.add_suggested_values_to_schema(
+                data_schema, {CONF_DEVICES: current}
+            )
         return self.async_show_form(
             step_id="cloud_select", data_schema=data_schema, errors=errors
         )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, object] | None = None
+    ) -> ConfigFlowResult:
+        """Change which devices a cloud account entry includes."""
+        entry = self._get_reconfigure_entry()
+        if CONF_MAILBOX not in entry.data:
+            return self.async_abort(reason="reconfigure_not_supported")
+
+        client = MarstekCloudClient(
+            async_get_clientsession(self.hass),
+            entry.data[CONF_MAILBOX],
+            entry.data[CONF_PASSWORD_HASH],
+            entry.data.get(CONF_TOKEN),
+        )
+        try:
+            devices = await client.async_get_devices(force=True)
+        except MarstekCloudAuthError:
+            return self.async_abort(reason="invalid_auth")
+        except MarstekCloudError:
+            return self.async_abort(reason="cannot_connect")
+        if not devices:
+            return self.async_abort(reason="no_cloud_devices")
+
+        self._cloud_mailbox = entry.data[CONF_MAILBOX]
+        self._cloud_password_hash = entry.data[CONF_PASSWORD_HASH]
+        self._cloud_token = client.token
+        self._cloud_devices = devices
+        return await self.async_step_cloud_select()
 
     async def _async_get_device_from_host(self, host: str) -> MarstekDeviceInfo:
         """Fetch device information from a specific host."""

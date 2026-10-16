@@ -168,3 +168,46 @@ async def test_cloud_flow_invalid_auth(hass: HomeAssistant) -> None:
         )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "invalid_auth"}
+
+
+async def test_cloud_reconfigure_adds_device(
+    hass: HomeAssistant, cloud_client: AsyncMock
+) -> None:
+    """Reconfiguring a cloud entry adds a device without re-entering credentials."""
+    entry = _cloud_entry(hass, [INVERTER_ID])
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "cloud_select"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_DEVICES: [INVERTER_ID, BATTERY_ID]}
+    )
+    await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_DEVICES] == [INVERTER_ID, BATTERY_ID]
+    assert entry.data[CONF_PASSWORD_HASH] == "hash"
+
+    # The reload set up the newly selected battery alongside the inverter.
+    unique_ids = {
+        e.unique_id
+        for e in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+    }
+    assert f"cloud_{INVERTER_ID}_cloud_pv_power" in unique_ids
+    assert f"cloud_{BATTERY_ID}_cloud_battery_soc" in unique_ids
+
+
+async def test_cloud_reconfigure_rejected_login(hass: HomeAssistant) -> None:
+    """Reconfiguring aborts when the saved credentials no longer work."""
+    entry = _cloud_entry(hass, [INVERTER_ID])
+    with patch(
+        "custom_components.marstek.cloud.MarstekCloudClient.async_get_devices",
+        new=AsyncMock(side_effect=MarstekCloudAuthError),
+    ):
+        result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "invalid_auth"
+    assert entry.data[CONF_DEVICES] == [INVERTER_ID]
