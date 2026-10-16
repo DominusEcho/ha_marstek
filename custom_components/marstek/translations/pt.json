@@ -2,7 +2,12 @@
     "config": {
         "abort": {
             "already_configured": "O dispositivo já está configurado",
+            "cannot_connect": "Não foi possível ligar à cloud Marstek",
+            "invalid_auth": "As credenciais guardadas da conta Marstek foram rejeitadas. Se alterou a palavra-passe, remova e adicione a conta novamente.",
             "missing_unique_id": "O dispositivo não forneceu um identificador único estável",
+            "no_cloud_devices": "Não foram encontrados dispositivos nesta conta Marstek",
+            "reconfigure_not_supported": "Apenas as contas cloud Marstek podem ser reconfiguradas",
+            "reconfigure_successful": "A reconfiguração foi concluída com sucesso",
             "unsupported_device": "Este tipo de dispositivo Marstek ainda não é suportado"
         },
         "error": {
