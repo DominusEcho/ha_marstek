@@ -4,7 +4,7 @@ from collections.abc import Generator
 from dataclasses import replace
 from datetime import timedelta
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiomarstek import MarstekDeviceInfo
 from freezegun.api import FrozenDateTimeFactory
@@ -15,7 +15,11 @@ from pytest_homeassistant_custom_component.components.diagnostics import (
 )
 from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
 
-from custom_components.marstek.cloud import MarstekCloudDevice
+from custom_components.marstek.cloud import (
+    MarstekCloudClient,
+    MarstekCloudDevice,
+    MarstekCloudError,
+)
 from custom_components.marstek.const import (
     CONF_BLE_MAC,
     CONF_CLOUD_DEVID,
@@ -276,3 +280,34 @@ async def test_diagnostics_redact_account(
     dumped = json.dumps(result)
     for secret in (MAILBOX, BATTERY_ID, '"hash"'):
         assert secret not in dumped
+
+
+async def test_stale_cloud_reason_logged(
+    hass: HomeAssistant,
+    client: FakeClient,
+    cloud_client: AsyncMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Why the cloud backup is not used is logged once and kept for diagnostics."""
+    entry = _local_entry(hass, BACKUP_OPTIONS)
+    await setup_entry(hass, entry)
+    stale = _devices(timedelta(hours=1))
+    cloud_client.side_effect = lambda **_: stale
+
+    client.online = False
+    for _ in range(3):
+        await poll(hass, freezer)
+    coordinator = entry.runtime_data
+    assert "last reported to the cloud" in coordinator.cloud_error
+    assert coordinator.cloud_report_time is not None
+    assert caplog.text.count("cloud backup cannot be used") == 1
+
+
+async def test_cloud_timeout_is_cloud_error(hass: HomeAssistant) -> None:
+    """A timed out cloud request is reported as a cloud error."""
+    session = MagicMock()
+    session.get.side_effect = TimeoutError
+    cloud = MarstekCloudClient(session, MAILBOX, "hash", "token")
+    with pytest.raises(MarstekCloudError):
+        await cloud.async_get_devices()

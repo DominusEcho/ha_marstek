@@ -160,8 +160,10 @@ class MarstekCloudClient:
             ) as response:
                 response.raise_for_status()
                 payload = await response.json(content_type=None)
-        except ClientError as err:
-            raise MarstekCloudError(f"Cloud login request failed: {err}") from err
+        except (ClientError, TimeoutError, ValueError) as err:
+            raise MarstekCloudError(
+                f"Cloud login request failed: {err!r}"
+            ) from err
 
         token = payload.get("token")
         if not token:
@@ -214,8 +216,8 @@ class MarstekCloudClient:
             ) as response:
                 response.raise_for_status()
                 payload = await response.json(content_type=None)
-        except ClientError as err:
-            raise MarstekCloudError(f"Cloud device list failed: {err}") from err
+        except (ClientError, TimeoutError, ValueError) as err:
+            raise MarstekCloudError(f"Cloud device list failed: {err!r}") from err
 
         # code 1 is success; anything else (commonly an expired token) is a
         # soft failure returned with HTTP 200.
