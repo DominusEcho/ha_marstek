@@ -64,6 +64,25 @@ async def test_grid_energy(
     assert hass.states.get(ids["grid_export_energy"]).state == "20.0"
 
 
+async def test_battery_energy(
+    hass: HomeAssistant,
+    client: FakeClient,
+    config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Battery power is integrated into charge or discharge energy by status."""
+    ids = await setup_entry(hass, config_entry)
+
+    # The device charges at 11 W, then discharges at 600 W.
+    client.es_status["ongrid_power"] = client.es_mode["ongrid_power"] = 600
+    await poll(hass, freezer)
+    assert round(float(hass.states.get(ids["battery_charge_energy"]).state), 3) == 0.183
+    assert hass.states.get(ids["battery_discharge_energy"]).state == "0.0"
+    await poll(hass, freezer)
+    assert hass.states.get(ids["battery_discharge_energy"]).state == "10.0"
+    assert round(float(hass.states.get(ids["battery_charge_energy"]).state), 3) == 0.183
+
+
 async def test_grid_energy_restored(
     hass: HomeAssistant, client: FakeClient, config_entry: MockConfigEntry
 ) -> None:

@@ -74,10 +74,38 @@
             }
         }
     },
+    "options": {
+        "error": {
+            "cannot_connect": "Não foi possível ligar à cloud Marstek",
+            "cloud_device_not_found": "Este dispositivo não foi encontrado nessa conta Marstek",
+            "invalid_auth": "E-mail ou palavra-passe da conta Marstek incorretos",
+            "password_required": "Introduza a palavra-passe desta conta Marstek"
+        },
+        "step": {
+            "init": {
+                "data": {
+                    "mailbox": "E-mail",
+                    "password": "Palavra-passe"
+                },
+                "data_description": {
+                    "mailbox": "O endereço de e-mail da sua conta da aplicação Marstek (Marstek/Hame).",
+                    "password": "A palavra-passe da sua conta da aplicação Marstek. Deixe vazio para manter a guardada, ou para usar a de uma conta cloud Marstek já adicionada."
+                },
+                "description": "Quando a API local do dispositivo deixar de responder, continuar a mostrar os seus valores a partir da cloud Marstek. A cloud indica o nível e a potência da bateria, atualizados a cada poucos minutos; as leituras da rede e das entradas PV ficam desconhecidas até o dispositivo voltar a responder.\n\nIntroduza a sua conta da aplicação Marstek, ou deixe o e-mail vazio para desativar a cópia de segurança.",
+                "title": "Cópia de segurança pela cloud Marstek"
+            }
+        }
+    },
     "entity": {
         "sensor": {
             "battery_power": {
                 "name": "Potência da bateria"
+            },
+            "battery_charge_energy": {
+                "name": "Energia carregada na bateria"
+            },
+            "battery_discharge_energy": {
+                "name": "Energia descarregada da bateria"
             },
             "battery_soc": {
                 "name": "Nível da bateria"
@@ -92,6 +120,14 @@
             },
             "charge_power": {
                 "name": "Potência de carga"
+            },
+            "data_source": {
+                "name": "Origem dos dados",
+                "state": {
+                    "local": "API local",
+                    "cloud": "Cloud Marstek",
+                    "none": "Nenhuma"
+                }
             },
             "discharge_power": {
                 "name": "Potência de descarga"
@@ -201,7 +237,7 @@
     "issues": {
         "open_api_unreachable": {
             "title": "O dispositivo Marstek em {host} não está a responder",
-            "description": "O dispositivo Marstek em {host} não responde à API local há 10 minutos. Os seus valores são mostrados como indisponíveis.\n\nVerifique se o dispositivo está ligado e com ligação à rede. Se estiver, a API local provavelmente deixou de responder: na aplicação Marstek, desative e volte a ativar a Open API. Este problema desaparece sozinho assim que o dispositivo voltar a responder."
+            "description": "O dispositivo Marstek em {host} não responde à API local há 10 minutos. Os seus valores são mostrados como indisponíveis, ou obtidos da cloud Marstek se a cópia de segurança pela cloud estiver ativada nas opções do dispositivo.\n\nVerifique se o dispositivo está ligado e com ligação à rede. Se estiver, a API local provavelmente deixou de responder: na aplicação Marstek, desative e volte a ativar a Open API. Este problema desaparece sozinho assim que o dispositivo voltar a responder."
         }
     }
 }

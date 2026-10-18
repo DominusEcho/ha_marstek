@@ -74,10 +74,38 @@
       }
     }
   },
+  "options": {
+    "error": {
+      "cannot_connect": "Unable to connect to the Marstek cloud",
+      "cloud_device_not_found": "This device was not found on that Marstek account",
+      "invalid_auth": "Incorrect e-mail or password for your Marstek account",
+      "password_required": "Enter the password for this Marstek account"
+    },
+    "step": {
+      "init": {
+        "data": {
+          "mailbox": "E-mail",
+          "password": "[%key:common::config_flow::data::password%]"
+        },
+        "data_description": {
+          "mailbox": "The e-mail address of your Marstek (Marstek/Hame) app account.",
+          "password": "The password for your Marstek app account. Leave it empty to keep the saved one, or to reuse the one of a Marstek cloud account you have already added."
+        },
+        "description": "When the device's local API stops answering, keep showing its values from the Marstek cloud. The cloud reports the battery level and battery power, updated every few minutes; grid and PV input readings show as unknown until the device answers again.\n\nEnter your Marstek app account, or leave the e-mail empty to turn the backup off.",
+        "title": "Marstek cloud backup"
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "battery_power": {
         "name": "Battery power"
+      },
+      "battery_charge_energy": {
+        "name": "Battery charge energy"
+      },
+      "battery_discharge_energy": {
+        "name": "Battery discharge energy"
       },
       "battery_soc": {
         "name": "Battery level"
@@ -92,6 +120,14 @@
       },
       "charge_power": {
         "name": "Charge power"
+      },
+      "data_source": {
+        "name": "Data source",
+        "state": {
+          "local": "Local API",
+          "cloud": "Marstek cloud",
+          "none": "None"
+        }
       },
       "discharge_power": {
         "name": "Discharge power"
@@ -201,7 +237,7 @@
   "issues": {
     "open_api_unreachable": {
       "title": "Marstek device at {host} is not responding",
-      "description": "The Marstek device at {host} has not answered its local API for 10 minutes. Its values are shown as unavailable.\n\nCheck that the device is powered on and connected to your network. If it is, its local API has probably stopped responding: in the Marstek app, switch Open API off and on again. This issue clears itself as soon as the device answers again."
+      "description": "The Marstek device at {host} has not answered its local API for 10 minutes. Its values are shown as unavailable, or taken from the Marstek cloud if the cloud backup is turned on in the device's options.\n\nCheck that the device is powered on and connected to your network. If it is, its local API has probably stopped responding: in the Marstek app, switch Open API off and on again. This issue clears itself as soon as the device answers again."
     }
   }
 }

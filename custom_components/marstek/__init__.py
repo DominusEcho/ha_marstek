@@ -62,8 +62,15 @@ async def async_setup_entry(
     if CONF_MAILBOX in entry.data:
         await _async_setup_cloud_entry(hass, entry)
     else:
+        cloud_client = (
+            _async_cloud_client(
+                hass, entry.options[CONF_MAILBOX], entry.options[CONF_PASSWORD_HASH]
+            )
+            if CONF_MAILBOX in entry.options
+            else None
+        )
         coordinator = MarstekDataUpdateCoordinator(
-            hass, entry, hass.data[MARSTEK_UDP_CLIENT]
+            hass, entry, hass.data[MARSTEK_UDP_CLIENT], cloud_client
         )
         entry.runtime_data = coordinator
         await coordinator.async_config_entry_first_refresh()
@@ -76,7 +83,12 @@ async def _async_setup_cloud_entry(
     hass: HomeAssistant, entry: MarstekCloudConfigEntry
 ) -> None:
     """Set up a cloud account entry with a coordinator per selected device."""
-    client = _async_cloud_client(hass, entry)
+    client = _async_cloud_client(
+        hass,
+        entry.data[CONF_MAILBOX],
+        entry.data[CONF_PASSWORD_HASH],
+        entry.data.get(CONF_TOKEN),
+    )
     coordinators: dict[str, MarstekCloudCoordinator] = {}
     for devid in entry.data[CONF_DEVICES]:
         coordinator = MarstekCloudCoordinator(hass, entry, client, devid)
@@ -86,17 +98,18 @@ async def _async_setup_cloud_entry(
 
 
 def _async_cloud_client(
-    hass: HomeAssistant, entry: MarstekCloudConfigEntry
+    hass: HomeAssistant, mailbox: str, password_hash: str, token: str | None = None
 ) -> MarstekCloudClient:
-    """Return the shared cloud client for the entry's account, creating it once."""
+    """Return the shared cloud client for an account, creating it once.
+
+    Cloud account entries and devices using the cloud as a backup share it.
+    """
     clients = hass.data.setdefault(CLOUD_CLIENTS, {})
-    mailbox: str = entry.data[CONF_MAILBOX]
-    if mailbox not in clients:
+    client = clients.get(mailbox)
+    # A different password hash means the password was changed since.
+    if client is None or client.password_hash != password_hash:
         clients[mailbox] = MarstekCloudClient(
-            async_get_clientsession(hass),
-            mailbox,
-            entry.data[CONF_PASSWORD_HASH],
-            entry.data.get(CONF_TOKEN),
+            async_get_clientsession(hass), mailbox, password_hash, token
         )
     return clients[mailbox]
 

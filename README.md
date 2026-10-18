@@ -38,21 +38,39 @@ After setup, the integration creates sensors for:
 - Grid power, in total and per phase, when a CT meter is connected to the device.
 - Grid import and export energy, integrated from the CT meter's grid power, for the grid in the Energy dashboard. They only count while Home Assistant is running.
 - Stored energy: the energy left in the battery.
+- Battery charge and discharge energy, integrated from the battery power and status, for the battery in the Energy dashboard. They only count while Home Assistant is running.
 - Last response and Error state (diagnostic): when the device last answered, and the outcome of the latest poll (`No error`, `No response`, `Network error`, or `Invalid data`). Both stay available while the device is not answering.
+- Data source (diagnostic): where the latest values came from, `Local API`, `Marstek cloud` (see [Cloud backup](#cloud-backup)), or `None`.
 - Venus A and Venus D only: PV energy today, and for each of the four PV inputs, power, voltage, current, and state (`Standby` or `Working`).
 
 ### Energy dashboard
 
 - **Grid connections**: use *Grid import energy* for energy consumed from the grid and *Grid export energy* for energy returned to the grid.
-- **Home battery storage**: use *Grid output energy today* for energy discharged from the battery. Some firmware, such as 301 on the Venus E Mini, reports *Grid input energy today* as 0 even while the battery charges. If yours does, integrate *Battery power* while *Battery status* is `Charging` with a template sensor and an **Integral** helper, and use that for energy charged into the battery.
+- **Home battery storage**: use *Battery charge energy* for energy going in to the battery and *Battery discharge energy* for energy coming out of it. They replace a template sensor and **Integral** helper on *Battery power*, which was needed because some firmware, such as 301 on the Venus E Mini, reports *Grid input energy today* as 0 even while the battery charges. With the [cloud backup](#cloud-backup) turned on, they keep counting while the device is not answering.
 
-The device is polled locally every 60 seconds. No cloud account or external service is required.
+The device is polled locally every 60 seconds. No cloud account or external service is required, unless you turn on the optional cloud backup.
 
 ### When the device stops answering
 
 Sensors keep their last values through one missed poll and become unavailable after two missed polls in a row. Grid import and export energy do not count the time the device was not answering, as the grid power during it is unknown.
 
 After 10 missed polls (10 minutes), a repair issue appears under **Settings** > **Repairs**. The local API of some devices stops answering until it is switched off and on again in the Marstek app. The issue clears itself when the device answers again, and the firmware version is re-read at that point, as a firmware update also interrupts the API.
+
+### Cloud backup
+
+The local API of some devices regularly stops answering. To keep seeing the battery in the meantime, open the device under **Settings** > **Devices & services** > **Marstek**, select **Configure**, and enter your Marstek app account. The device is found on the account by its MAC address. If you have already added that account as a Marstek cloud account, you can leave the password empty to reuse it.
+
+Instead of becoming unavailable after two missed polls, the sensors then take their values from the Marstek cloud until the device answers again, and *Data source* shows `Marstek cloud`. Home Assistant also starts with cloud values if the device is not answering at startup.
+
+The cloud reports less than the local API, and only every few minutes:
+
+- Battery level, battery power, and battery status come from the cloud.
+- Stored energy is scaled from its last local value by the battery level.
+- The energy-today counters and device mode keep their last local values.
+- Grid power comes from the CT meter reading in the cloud. Per-phase power and PV input readings are unknown.
+- Grid import/export energy and battery charge/discharge energy keep counting from the cloud values. As the cloud updates only every few minutes, they are less exact than local readings.
+
+Cloud values older than 15 minutes are not used, so a device that is offline altogether still becomes unavailable. To turn the backup off, open **Configure** again and clear the e-mail.
 
 ### Implausible readings
 

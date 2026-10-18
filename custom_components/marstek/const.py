@@ -17,6 +17,10 @@ CONF_MAILBOX: Final = "mailbox"
 CONF_PASSWORD_HASH: Final = "password_hash"  # noqa: S105
 CONF_TOKEN: Final = "token"  # noqa: S105
 CONF_DEVICES: Final = "devices"
+# A locally polled device can fall back to the cloud while its local API does
+# not answer. Its options then hold CONF_MAILBOX, CONF_PASSWORD_HASH and the
+# device id the cloud knows it by.
+CONF_CLOUD_DEVID: Final = "cloud_devid"
 
 # Cloud device types that expose PV (solar) production, such as the Marstek
 # micro-inverters whose type starts with "HMI".
@@ -56,3 +60,9 @@ ERROR_STATE_OPTIONS: Final = (
 )
 
 BATTERY_STATUS_OPTIONS: Final = ("selling", "charging", "idle")
+
+# Where the latest values of a locally polled device came from.
+DATA_SOURCE_LOCAL: Final = "local"
+DATA_SOURCE_CLOUD: Final = "cloud"
+DATA_SOURCE_NONE: Final = "none"
+DATA_SOURCE_OPTIONS: Final = (DATA_SOURCE_LOCAL, DATA_SOURCE_CLOUD, DATA_SOURCE_NONE)

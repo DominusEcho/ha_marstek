@@ -8,7 +8,7 @@ from typing import override
 from aiomarstek import MarstekDeviceInfo, MarstekDeviceStatus, MarstekUDPClient
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST
+from homeassistant.const import CONF_HOST, CONF_MAC
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
@@ -16,7 +16,17 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 from homeassistant.util.hass_dict import HassKey
 
+from .cloud import MarstekCloudClient, MarstekCloudDevice, MarstekCloudError
 from .const import (
+    CONF_BLE_MAC,
+    CONF_CLOUD_DEVID,
+    CONF_DEVICE_TYPE,
+    CONF_VERSION,
+    CONF_WIFI_MAC,
+    CONF_WIFI_NAME,
+    DATA_SOURCE_CLOUD,
+    DATA_SOURCE_LOCAL,
+    DATA_SOURCE_NONE,
     DOMAIN,
     ERROR_INVALID_DATA,
     ERROR_NETWORK,
@@ -49,6 +59,22 @@ DAILY_ENERGY_KEYS = (
 DAILY_RESET_MAX_WH = 100
 # A battery level this high cannot drop to 0 % within one poll.
 SOC_GLITCH_FLOOR = 10
+# Cloud readings older than this are too stale to stand in for the device,
+# for example because the device is offline altogether.
+CLOUD_MAX_AGE = timedelta(minutes=15)
+
+# Readings the cloud does not report; they are unknown, rather than stale,
+# while the values come from the cloud.
+CLOUD_UNKNOWN_KEYS = (
+    "grid_phase_a_power",
+    "grid_phase_b_power",
+    "grid_phase_c_power",
+    *(
+        f"pv{pv_input}_{metric}"
+        for pv_input in range(1, 5)
+        for metric in ("power", "voltage", "current", "state")
+    ),
+)
 
 
 type MarstekConfigEntry = ConfigEntry[MarstekDataUpdateCoordinator]
@@ -66,16 +92,23 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
     last_response: datetime | None = None
     failed_polls: int = 0
     error_state: str = ERROR_NONE
+    data_source: str = DATA_SOURCE_NONE
+    # Whether the latest data was just read, locally or from the cloud, rather
+    # than held over from before a missed poll.
+    fresh: bool = False
 
     def __init__(
         self,
         hass: HomeAssistant,
         config_entry: MarstekConfigEntry,
         udp_client: MarstekUDPClient,
+        cloud_client: MarstekCloudClient | None = None,
     ) -> None:
-        """Initialize the coordinator."""
+        """Initialize the coordinator, with a cloud client to fall back on."""
         self.device_ip = config_entry.data[CONF_HOST]
         self.udp_client = udp_client
+        self.cloud_client = cloud_client
+        self.cloud_devid: str | None = config_entry.options.get(CONF_CLOUD_DEVID)
         super().__init__(
             hass,
             _LOGGER,
@@ -95,6 +128,15 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
         try:
             device_info = await self.udp_client.get_device_info(self.device_ip)
         except (TimeoutError, OSError, TypeError) as err:
+            if self.has_cloud_backup and (stored := self._stored_device_info()):
+                # Start from the cloud; the first poll the device answers
+                # refreshes the firmware version.
+                _LOGGER.warning(
+                    "Device %s is not answering, starting with cloud data",
+                    self.device_ip,
+                )
+                self.device_info = stored
+                return
             raise UpdateFailed(
                 translation_domain=DOMAIN,
                 translation_key="device_connection_failed",
@@ -117,6 +159,29 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
 
         self.device_info = device_info
 
+    def _stored_device_info(self) -> MarstekDeviceInfo | None:
+        """Return the device information saved when the entry was created."""
+        data = self.config_entry.data
+        if CONF_DEVICE_TYPE not in data:
+            return None
+        info = MarstekDeviceInfo.from_response(
+            {
+                "device": data[CONF_DEVICE_TYPE],
+                "ver": data.get(CONF_VERSION),
+                "wifi_name": data.get(CONF_WIFI_NAME),
+                "ip": self.device_ip,
+                "wifi_mac": data.get(CONF_WIFI_MAC),
+                "ble_mac": data.get(CONF_BLE_MAC),
+                "mac": data.get(CONF_MAC),
+            }
+        )
+        return info if info.stable_id == self.config_entry.unique_id else None
+
+    @property
+    def has_cloud_backup(self) -> bool:
+        """Return whether the cloud is used while the device does not answer."""
+        return self.cloud_client is not None and self.cloud_devid is not None
+
     @property
     def issue_id(self) -> str:
         """Return the repair issue id for an unreachable device."""
@@ -135,12 +200,12 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
                 previous_data=previous,
             )
         except (TimeoutError, OSError, TypeError) as err:
-            return self._missed_poll(previous, err)
+            return await self._async_missed_poll(previous, err)
 
         last_response = self.udp_client.get_last_response_time(self.device_ip)
         if last_response is None or last_response == answered_before:
             # The library returns the previous data when nothing answered.
-            return self._missed_poll(
+            return await self._async_missed_poll(
                 previous, TimeoutError(f"No response from {self.device_ip}")
             )
 
@@ -160,14 +225,17 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
         )
         self.failed_polls = 0
         self.error_state = ERROR_NONE
+        self.data_source = DATA_SOURCE_LOCAL
+        self.fresh = True
         self.last_response = last_response
         return hold_glitches(previous, status, new_day=new_day)
 
-    def _missed_poll(
+    async def _async_missed_poll(
         self, previous: MarstekDeviceStatus | None, err: Exception
     ) -> MarstekDeviceStatus:
-        """Keep the last data through a missed poll, then fail the update."""
+        """Keep the last data through a missed poll, then use the cloud or fail."""
         self.failed_polls += 1
+        self.fresh = False
         self.error_state = (
             ERROR_NO_RESPONSE
             if isinstance(err, TimeoutError)
@@ -190,11 +258,47 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
                 "Device %s missed poll %s: %s", self.device_ip, self.failed_polls, err
             )
             return previous
+        if self.has_cloud_backup and (
+            cloud := await self._async_cloud_status(previous)
+        ):
+            self.data_source = DATA_SOURCE_CLOUD
+            self.fresh = True
+            return cloud
+        self.data_source = DATA_SOURCE_NONE
         raise UpdateFailed(
             translation_domain=DOMAIN,
             translation_key="device_update_failed",
             translation_placeholders={"host": self.device_ip},
         ) from err
+
+    async def _async_cloud_status(
+        self, previous: MarstekDeviceStatus | None
+    ) -> MarstekDeviceStatus | None:
+        """Return the status built from the cloud, or None if it has none fresh."""
+        assert self.cloud_client is not None
+        try:
+            devices = await self.cloud_client.async_get_devices()
+        except MarstekCloudError as err:
+            _LOGGER.debug("Device %s cloud backup failed: %s", self.device_ip, err)
+            return None
+        device = devices.get(str(self.cloud_devid))
+        if device is None or device.report_time is None:
+            _LOGGER.debug("Device %s is missing from the cloud", self.device_ip)
+            return None
+        age = dt_util.utcnow() - dt_util.utc_from_timestamp(device.report_time)
+        if age > CLOUD_MAX_AGE:
+            _LOGGER.debug(
+                "Device %s last reported to the cloud %s ago", self.device_ip, age
+            )
+            return None
+        if self.data_source != DATA_SOURCE_CLOUD:
+            _LOGGER.info(
+                "Device %s is not answering, using cloud data until it does",
+                self.device_ip,
+            )
+        return status_from_cloud(
+            previous or MarstekDeviceStatus(device_ip=self.device_ip), device
+        )
 
     async def _async_refresh_firmware(self) -> None:
         """Re-read the firmware version, as a firmware update causes an outage."""
@@ -216,6 +320,50 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
             (DOMAIN, self.device_info.stable_id), self.config_entry.entry_id
         ):
             registry.async_update_device(device.id, sw_version=str(info.version))
+
+
+def status_from_cloud(
+    previous: MarstekDeviceStatus, device: MarstekCloudDevice
+) -> MarstekDeviceStatus:
+    """Return the previous status updated with what the cloud reports.
+
+    The cloud grid power is the CT meter's, positive when importing, like the
+    local one. The daily energy counters and the device mode keep their last
+    local values; readings the cloud does not have become unknown.
+    """
+    net_power = (
+        None
+        if device.charge_power is None and device.discharge_power is None
+        else (device.discharge_power or 0) - (device.charge_power or 0)
+    )
+    battery_status = (
+        None
+        if net_power is None
+        else "selling"
+        if net_power > 0
+        else "charging"
+        if net_power < 0
+        else "idle"
+    )
+    # The cloud has no stored energy, but it scales with the battery level.
+    battery_energy = None
+    if (
+        previous.battery_energy
+        and previous.battery_soc
+        and device.battery_soc is not None
+    ):
+        battery_energy = round(
+            previous.battery_energy * device.battery_soc / previous.battery_soc
+        )
+    return replace(
+        previous,
+        battery_soc=device.battery_soc,
+        battery_power=abs(net_power) if net_power is not None else None,
+        battery_status=battery_status,
+        battery_energy=battery_energy,
+        grid_power=device.grid_power,
+        **dict.fromkeys(CLOUD_UNKNOWN_KEYS),
+    )
 
 
 def hold_glitches(
