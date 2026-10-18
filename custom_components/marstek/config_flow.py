@@ -5,11 +5,17 @@ import logging
 from typing import override
 
 from aiomarstek import MarstekDeviceInfo
-from probatio import Required, Schema
+from probatio import Optional, Required, Schema
 
 from homeassistant import config_entries
-from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigFlowResult
+from homeassistant.config_entries import (
+    SOURCE_RECONFIGURE,
+    ConfigEntry,
+    ConfigFlowResult,
+    OptionsFlowWithReload,
+)
 from homeassistant.const import CONF_DEVICE, CONF_HOST, CONF_MAC, CONF_PASSWORD
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     SelectOptionDict,
@@ -25,10 +31,12 @@ from .cloud import (
     MarstekCloudClient,
     MarstekCloudDevice,
     MarstekCloudError,
+    find_cloud_device,
     hash_password,
 )
 from .const import (
     CONF_BLE_MAC,
+    CONF_CLOUD_DEVID,
     CONF_DEVICE_TYPE,
     CONF_DEVICES,
     CONF_MAILBOX,
@@ -57,6 +65,17 @@ STEP_CLOUD_DATA_SCHEMA = Schema(
     }
 )
 
+STEP_CLOUD_BACKUP_DATA_SCHEMA = Schema(
+    {
+        Optional(CONF_MAILBOX): TextSelector(
+            TextSelectorConfig(type=TextSelectorType.EMAIL)
+        ),
+        Optional(CONF_PASSWORD): TextSelector(
+            TextSelectorConfig(type=TextSelectorType.PASSWORD)
+        ),
+    }
+)
+
 
 class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Marstek."""
@@ -72,6 +91,20 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._cloud_password_hash: str = ""
         self._cloud_token: str | None = None
         self._cloud_devices: dict[str, MarstekCloudDevice] = {}
+
+    @staticmethod
+    @callback
+    @override
+    def async_get_options_flow(config_entry: ConfigEntry) -> "MarstekOptionsFlow":
+        """Return the options flow, which sets up the cloud backup."""
+        return MarstekOptionsFlow()
+
+    @classmethod
+    @callback
+    @override
+    def async_supports_options_flow(cls, config_entry: ConfigEntry) -> bool:
+        """Offer options for locally polled devices only."""
+        return CONF_MAILBOX not in config_entry.data
 
     @override
     async def async_step_user(
@@ -406,3 +439,93 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_BLE_MAC: device.ble_mac,
             },
         )
+
+
+class MarstekOptionsFlow(OptionsFlowWithReload):
+    """Set up the Marstek cloud as a backup for a locally polled device."""
+
+    async def async_step_init(
+        self, user_input: dict[str, object] | None = None
+    ) -> ConfigFlowResult:
+        """Ask for the Marstek account; leaving it empty turns the backup off."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            mailbox = str(user_input.get(CONF_MAILBOX, "")).strip()
+            password = str(user_input.get(CONF_PASSWORD, ""))
+            if not mailbox:
+                return self.async_create_entry(data={})
+            password_hash = (
+                hash_password(password)
+                if password
+                else self._known_password_hash(mailbox)
+            )
+            if password_hash is None:
+                errors[CONF_PASSWORD] = "password_required"
+            else:
+                client = MarstekCloudClient(
+                    async_get_clientsession(self.hass), mailbox, password_hash
+                )
+                try:
+                    devices = await client.async_get_devices(force=True)
+                except MarstekCloudAuthError:
+                    errors["base"] = "invalid_auth"
+                except MarstekCloudError:
+                    errors["base"] = "cannot_connect"
+                else:
+                    if device := find_cloud_device(devices, self._device_macs()):
+                        return self.async_create_entry(
+                            data={
+                                CONF_MAILBOX: mailbox,
+                                CONF_PASSWORD_HASH: password_hash,
+                                CONF_CLOUD_DEVID: device.devid,
+                            }
+                        )
+                    errors["base"] = "cloud_device_not_found"
+
+        suggested_mailbox = self.config_entry.options.get(CONF_MAILBOX) or next(
+            (
+                entry.data[CONF_MAILBOX]
+                for entry in self.hass.config_entries.async_entries(DOMAIN)
+                if CONF_MAILBOX in entry.data
+            ),
+            None,
+        )
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(
+                STEP_CLOUD_BACKUP_DATA_SCHEMA,
+                user_input or {CONF_MAILBOX: suggested_mailbox},
+            ),
+            errors=errors,
+        )
+
+    def _known_password_hash(self, mailbox: str) -> str | None:
+        """Return a saved password hash for the account, so it is not asked again.
+
+        The backup's own account and cloud account entries are checked.
+        """
+        if self.config_entry.options.get(CONF_MAILBOX) == mailbox:
+            return self.config_entry.options[CONF_PASSWORD_HASH]
+        return next(
+            (
+                entry.data[CONF_PASSWORD_HASH]
+                for entry in self.hass.config_entries.async_entries(DOMAIN)
+                if entry.data.get(CONF_MAILBOX) == mailbox
+            ),
+            None,
+        )
+
+    def _device_macs(self) -> set[str]:
+        """Return every MAC address the local device is known by."""
+        data = self.config_entry.data
+        macs = {
+            self.config_entry.unique_id or "",
+            data.get(CONF_MAC, ""),
+            data.get(CONF_WIFI_MAC, ""),
+            data.get(CONF_BLE_MAC, ""),
+        }
+        if self.config_entry.state is config_entries.ConfigEntryState.LOADED:
+            info: MarstekDeviceInfo = self.config_entry.runtime_data.device_info
+            macs |= {info.mac, info.wifi_mac, info.ble_mac}
+        return macs

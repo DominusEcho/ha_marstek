@@ -34,6 +34,7 @@ from .const import (
     BATTERY_STATUS_OPTIONS,
     CLOUD_PV_TYPE_PREFIX,
     CONF_MAILBOX,
+    DATA_SOURCE_OPTIONS,
     DEVICE_MODE_OPTIONS,
     ERROR_STATE_OPTIONS,
     PV_DEVICE_TYPES,
@@ -45,8 +46,8 @@ from .entity import MarstekCloudEntity, MarstekEntity
 _LOGGER = logging.getLogger(__name__)
 
 # Polling gaps longer than this (e.g. Home Assistant downtime) are not counted
-# towards grid energy, as the power during the gap is unknown.
-MAX_GRID_ENERGY_INTERVAL = timedelta(minutes=5)
+# towards the integrated energy, as the power during the gap is unknown.
+MAX_ENERGY_INTERVAL = timedelta(minutes=5)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -59,11 +60,41 @@ class MarstekSensorEntityDescription(SensorEntityDescription):
 
 
 @dataclass(frozen=True, kw_only=True)
-class MarstekGridEnergySensorEntityDescription(SensorEntityDescription):
-    """Describe a grid energy sensor integrated from CT meter grid power."""
+class MarstekEnergySensorEntityDescription(SensorEntityDescription):
+    """Describe an energy sensor integrated from a power reading."""
 
-    # 1 counts power drawn from the grid, -1 counts power fed into it.
-    direction: int
+    # The power to count, in W, never negative; None while it is unknown.
+    power_fn: Callable[[MarstekDeviceStatus], float | None]
+    device_class: SensorDeviceClass = SensorDeviceClass.ENERGY
+    native_unit_of_measurement: str = UnitOfEnergy.WATT_HOUR
+    state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
+    suggested_display_precision: int = 0
+
+
+def _grid_power(direction: int) -> Callable[[MarstekDeviceStatus], float | None]:
+    """Return the grid power drawn from (1) or fed into (-1) the grid."""
+
+    def power(status: MarstekDeviceStatus) -> float | None:
+        if status.grid_power is None:
+            return None
+        return max(direction * float(status.grid_power), 0)
+
+    return power
+
+
+def _battery_power(
+    battery_status: str,
+) -> Callable[[MarstekDeviceStatus], float | None]:
+    """Return the battery power while the battery has the given status."""
+
+    def power(status: MarstekDeviceStatus) -> float | None:
+        if status.battery_power is None or status.battery_status is None:
+            return None
+        if status.battery_status != battery_status:
+            return 0
+        return float(status.battery_power)
+
+    return power
 
 
 def _pv_input_sensor_descriptions() -> tuple[MarstekSensorEntityDescription, ...]:
@@ -197,26 +228,28 @@ SENSOR_DESCRIPTIONS: tuple[MarstekSensorEntityDescription, ...] = (
 )
 
 
-GRID_ENERGY_SENSOR_DESCRIPTIONS: tuple[
-    MarstekGridEnergySensorEntityDescription, ...
-] = (
-    MarstekGridEnergySensorEntityDescription(
+ENERGY_SENSOR_DESCRIPTIONS: tuple[MarstekEnergySensorEntityDescription, ...] = (
+    MarstekEnergySensorEntityDescription(
         key="grid_import_energy",
         translation_key="grid_import_energy",
-        device_class=SensorDeviceClass.ENERGY,
-        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
-        state_class=SensorStateClass.TOTAL_INCREASING,
-        suggested_display_precision=0,
-        direction=1,
+        power_fn=_grid_power(1),
     ),
-    MarstekGridEnergySensorEntityDescription(
+    MarstekEnergySensorEntityDescription(
         key="grid_export_energy",
         translation_key="grid_export_energy",
-        device_class=SensorDeviceClass.ENERGY,
-        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
-        state_class=SensorStateClass.TOTAL_INCREASING,
-        suggested_display_precision=0,
-        direction=-1,
+        power_fn=_grid_power(-1),
+    ),
+    # The battery's power on its AC side, so charging losses count as charged
+    # energy, as the Energy dashboard expects.
+    MarstekEnergySensorEntityDescription(
+        key="battery_charge_energy",
+        translation_key="battery_charge_energy",
+        power_fn=_battery_power("charging"),
+    ),
+    MarstekEnergySensorEntityDescription(
+        key="battery_discharge_energy",
+        translation_key="battery_discharge_energy",
+        power_fn=_battery_power("selling"),
     ),
 )
 
@@ -233,6 +266,14 @@ ERROR_STATE_SENSOR_DESCRIPTION = SensorEntityDescription(
     translation_key="error_state",
     device_class=SensorDeviceClass.ENUM,
     options=list(ERROR_STATE_OPTIONS),
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+DATA_SOURCE_SENSOR_DESCRIPTION = SensorEntityDescription(
+    key="data_source",
+    translation_key="data_source",
+    device_class=SensorDeviceClass.ENUM,
+    options=list(DATA_SOURCE_OPTIONS),
     entity_category=EntityCategory.DIAGNOSTIC,
 )
 
@@ -258,13 +299,14 @@ async def async_setup_entry(
         if has_pv or not description.requires_pv
     ]
     sensors.extend(
-        MarstekGridEnergySensor(coordinator, description)
-        for description in GRID_ENERGY_SENSOR_DESCRIPTIONS
+        MarstekEnergySensor(coordinator, description)
+        for description in ENERGY_SENSOR_DESCRIPTIONS
     )
     sensors.append(
         MarstekLastResponseSensor(coordinator, LAST_RESPONSE_SENSOR_DESCRIPTION)
     )
     sensors.append(MarstekErrorStateSensor(coordinator, ERROR_STATE_SENSOR_DESCRIPTION))
+    sensors.append(MarstekDataSourceSensor(coordinator, DATA_SOURCE_SENSOR_DESCRIPTION))
 
     _LOGGER.debug("Device %s sensors set up, total %d", device_ip, len(sensors))
     async_add_entities(sensors)
@@ -284,10 +326,10 @@ class MarstekSensor(MarstekEntity, SensorEntity):
         return self.coordinator.data.get_value(self.entity_description.key)
 
 
-class MarstekGridEnergySensor(MarstekEntity, RestoreSensor):
-    """Grid energy integrated from the CT meter's grid power readings."""
+class MarstekEnergySensor(MarstekEntity, RestoreSensor):
+    """Energy integrated from a power reading, such as the CT meter's."""
 
-    entity_description: MarstekGridEnergySensorEntityDescription
+    entity_description: MarstekEnergySensorEntityDescription
     _energy: float | None = None
     _last_power: float | None = None
     _last_update: datetime | None = None
@@ -306,27 +348,25 @@ class MarstekGridEnergySensor(MarstekEntity, RestoreSensor):
     @override
     def _handle_coordinator_update(self) -> None:
         """Add the energy flowed since the previous poll (left Riemann sum)."""
-        if self.coordinator.failed_polls:
-            # The device did not answer, so the power since the last reading is
-            # unknown; resume counting from the next reading instead.
+        if not self.coordinator.fresh:
+            # Neither the device nor the cloud answered, so the power since the
+            # last reading is unknown; resume counting from the next reading.
             self._last_power = None
             super()._handle_coordinator_update()
             return
         now = dt_util.utcnow()
         if self._last_power is not None and self._last_update is not None:
             elapsed = now - self._last_update
-            if elapsed <= MAX_GRID_ENERGY_INTERVAL:
-                power = max(self.entity_description.direction * self._last_power, 0)
+            if elapsed <= MAX_ENERGY_INTERVAL:
                 self._energy = (self._energy or 0.0) + (
-                    power * elapsed.total_seconds() / 3600
+                    self._last_power * elapsed.total_seconds() / 3600
                 )
         self._record_power(now)
         super()._handle_coordinator_update()
 
     def _record_power(self, now: datetime | None = None) -> None:
-        """Remember the current grid power as the start of the next interval."""
-        power = self.coordinator.data.grid_power
-        self._last_power = float(power) if power is not None else None
+        """Remember the current power as the start of the next interval."""
+        self._last_power = self.entity_description.power_fn(self.coordinator.data)
         self._last_update = now or dt_util.utcnow()
         if self._last_power is not None and self._energy is None:
             self._energy = 0.0
@@ -334,7 +374,7 @@ class MarstekGridEnergySensor(MarstekEntity, RestoreSensor):
     @property
     @override
     def native_value(self) -> float | None:
-        """Return the accumulated grid energy."""
+        """Return the accumulated energy."""
         return self._energy
 
 
@@ -368,6 +408,22 @@ class MarstekErrorStateSensor(MarstekEntity, SensorEntity):
     def native_value(self) -> str:
         """Return the error state of the latest poll."""
         return self.coordinator.error_state
+
+
+class MarstekDataSourceSensor(MarstekEntity, SensorEntity):
+    """Where the latest values came from: the local API or the cloud."""
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Stay available while there are no values, to show that."""
+        return True
+
+    @property
+    @override
+    def native_value(self) -> str:
+        """Return the source of the latest values."""
+        return self.coordinator.data_source
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -516,7 +572,7 @@ class MarstekCloudSolarEnergySensor(MarstekCloudEntity, RestoreSensor):
         now = dt_util.utcnow()
         if self._last_power is not None and self._last_update is not None:
             elapsed = now - self._last_update
-            if elapsed <= MAX_GRID_ENERGY_INTERVAL:
+            if elapsed <= MAX_ENERGY_INTERVAL:
                 power = max(self._last_power, 0)
                 self._energy = (self._energy or 0.0) + (
                     power * elapsed.total_seconds() / 3600

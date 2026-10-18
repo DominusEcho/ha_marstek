@@ -98,6 +98,25 @@ class MarstekCloudDevice:
         )
 
 
+def find_cloud_device(
+    devices: dict[str, MarstekCloudDevice], macs: set[str]
+) -> MarstekCloudDevice | None:
+    """Return the cloud device with one of a local device's MAC addresses.
+
+    The cloud lists a battery under its Bluetooth MAC, which the local API
+    reports as ble_mac, so every MAC the device is known by is compared.
+    """
+    wanted = {mac.replace(":", "").lower() for mac in macs if mac}
+    return next(
+        (
+            device
+            for device in devices.values()
+            if device.mac.replace(":", "").lower() in wanted
+        ),
+        None,
+    )
+
+
 class MarstekCloudClient:
     """Shared cloud client for one account.
 
@@ -120,6 +139,11 @@ class MarstekCloudClient:
         self._lock = asyncio.Lock()
         self._cache: dict[str, MarstekCloudDevice] | None = None
         self._cache_time = 0.0
+
+    @property
+    def password_hash(self) -> str:
+        """Return the hash of the password the client logs in with."""
+        return self._password_hash
 
     @property
     def token(self) -> str | None:

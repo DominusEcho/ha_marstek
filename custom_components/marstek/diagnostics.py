@@ -6,10 +6,26 @@ from typing import Any
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_BLE_MAC, CONF_WIFI_MAC, CONF_WIFI_NAME
+from .const import (
+    CONF_BLE_MAC,
+    CONF_CLOUD_DEVID,
+    CONF_MAILBOX,
+    CONF_PASSWORD_HASH,
+    CONF_WIFI_MAC,
+    CONF_WIFI_NAME,
+)
 from .coordinator import MarstekConfigEntry
 
-TO_REDACT = {CONF_BLE_MAC, CONF_WIFI_MAC, CONF_WIFI_NAME, "mac", "unique_id"}
+TO_REDACT = {
+    CONF_BLE_MAC,
+    CONF_CLOUD_DEVID,
+    CONF_MAILBOX,
+    CONF_PASSWORD_HASH,
+    CONF_WIFI_MAC,
+    CONF_WIFI_NAME,
+    "mac",
+    "unique_id",
+}
 
 
 async def async_get_config_entry_diagnostics(
@@ -22,7 +38,12 @@ async def async_get_config_entry_diagnostics(
 
     return {
         "entry": async_redact_data(
-            {"data": dict(entry.data), "unique_id": entry.unique_id}, TO_REDACT
+            {
+                "data": dict(entry.data),
+                "options": dict(entry.options),
+                "unique_id": entry.unique_id,
+            },
+            TO_REDACT,
         ),
         "device_info": async_redact_data(asdict(coordinator.device_info), TO_REDACT),
         "poll": {
@@ -31,6 +52,8 @@ async def async_get_config_entry_diagnostics(
             else None,
             "last_update_success": coordinator.last_update_success,
             "error_state": coordinator.error_state,
+            "data_source": coordinator.data_source,
+            "cloud_backup": coordinator.has_cloud_backup,
             "failed_polls": coordinator.failed_polls,
             "last_response": last_response.isoformat() if last_response else None,
         },
