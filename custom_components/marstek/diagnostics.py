@@ -54,6 +54,10 @@ async def async_get_config_entry_diagnostics(
             "error_state": coordinator.error_state,
             "data_source": coordinator.data_source,
             "cloud_backup": coordinator.has_cloud_backup,
+            "cloud_error": coordinator.cloud_error,
+            "cloud_report_time": coordinator.cloud_report_time.isoformat()
+            if coordinator.cloud_report_time
+            else None,
             "failed_polls": coordinator.failed_polls,
             "last_response": last_response.isoformat() if last_response else None,
         },

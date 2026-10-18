@@ -96,6 +96,10 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
     # Whether the latest data was just read, locally or from the cloud, rather
     # than held over from before a missed poll.
     fresh: bool = False
+    # Why the cloud backup was last not used, and when the device last
+    # reported to the cloud, for diagnostics.
+    cloud_error: str | None = None
+    cloud_report_time: datetime | None = None
 
     def __init__(
         self,
@@ -137,6 +141,12 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
                 )
                 self.device_info = stored
                 return
+            if self.has_cloud_backup:
+                _LOGGER.warning(
+                    "Device %s is not answering and its saved device information "
+                    "does not match the entry, so it cannot start from the cloud",
+                    self.device_ip,
+                )
             raise UpdateFailed(
                 translation_domain=DOMAIN,
                 translation_key="device_connection_failed",
@@ -227,6 +237,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
         self.error_state = ERROR_NONE
         self.data_source = DATA_SOURCE_LOCAL
         self.fresh = True
+        self.cloud_error = None
         self.last_response = last_response
         return hold_glitches(previous, status, new_day=new_day)
 
@@ -279,18 +290,22 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
         try:
             devices = await self.cloud_client.async_get_devices()
         except MarstekCloudError as err:
-            _LOGGER.debug("Device %s cloud backup failed: %s", self.device_ip, err)
-            return None
+            return self._cloud_unusable(str(err))
         device = devices.get(str(self.cloud_devid))
-        if device is None or device.report_time is None:
-            _LOGGER.debug("Device %s is missing from the cloud", self.device_ip)
-            return None
-        age = dt_util.utcnow() - dt_util.utc_from_timestamp(device.report_time)
-        if age > CLOUD_MAX_AGE:
-            _LOGGER.debug(
-                "Device %s last reported to the cloud %s ago", self.device_ip, age
+        if device is None:
+            return self._cloud_unusable(
+                f"the cloud does not list device {self.cloud_devid}"
             )
-            return None
+        if device.report_time is None:
+            return self._cloud_unusable("the cloud has no report time for it")
+        self.cloud_report_time = dt_util.utc_from_timestamp(device.report_time)
+        age = dt_util.utcnow() - self.cloud_report_time
+        if age > CLOUD_MAX_AGE:
+            return self._cloud_unusable(
+                f"it last reported to the cloud at {self.cloud_report_time}, "
+                f"more than {CLOUD_MAX_AGE} ago"
+            )
+        self.cloud_error = None
         if self.data_source != DATA_SOURCE_CLOUD:
             _LOGGER.info(
                 "Device %s is not answering, using cloud data until it does",
@@ -299,6 +314,16 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
         return status_from_cloud(
             previous or MarstekDeviceStatus(device_ip=self.device_ip), device
         )
+
+    def _cloud_unusable(self, reason: str) -> None:
+        """Record why the cloud backup cannot be used, warning once per reason."""
+        if reason != self.cloud_error:
+            _LOGGER.warning(
+                "Device %s is not answering and its cloud backup cannot be used: %s",
+                self.device_ip,
+                reason,
+            )
+        self.cloud_error = reason
 
     async def _async_refresh_firmware(self) -> None:
         """Re-read the firmware version, as a firmware update causes an outage."""
