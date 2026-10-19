@@ -67,10 +67,10 @@ The cloud reports less than the local API, and only every few minutes:
 - Battery level, battery power, and battery status come from the cloud.
 - Stored energy is scaled from its last local value by the battery level.
 - The energy-today counters and device mode keep their last local values.
-- Grid power comes from the CT meter reading in the cloud. Per-phase power and PV input readings are unknown.
+- Grid power comes from the account's CT meter (CT002 or CT003), which the cloud lists as a device of its own. It is unknown if the account has no CT meter, or more than one. Per-phase power and PV input readings are unknown.
 - Grid import/export energy and battery charge/discharge energy keep counting from the cloud values. As the cloud updates only every few minutes, they are less exact than local readings.
 
-Cloud values older than 15 minutes are not used, so a device that is offline altogether still becomes unavailable. To turn the backup off, open **Configure** again and clear the e-mail.
+Cloud values that have not changed for 15 minutes are not used, so a device that is offline altogether still becomes unavailable after that. The cloud's last report time is not relied on, as it can lag the live values by hours. To turn the backup off, open **Configure** again and clear the e-mail.
 
 ### Implausible readings
 

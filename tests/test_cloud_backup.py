@@ -50,14 +50,36 @@ BACKUP_OPTIONS = {
 }
 
 
-def _devices(report_age: timedelta = timedelta()) -> dict[str, MarstekCloudDevice]:
+CT_ID = "f8d811e0ef14"
+# The account's CT002 meter, listed as its own cloud device.
+CT_METER = {
+    "devid": CT_ID,
+    "name": "TC Casa",
+    "type": "HME-4",
+    "mac": CT_ID,
+    "version": "124",
+    "soc": 0,
+    "charge": 0,
+    "discharge": 0,
+    "load": 2045,
+    "pv": 0,
+    "grid": 2045,
+    "battery_num": 0,
+}
+# Minutes the 15 minute staleness limit takes to run out, polled each minute.
+STALE_POLLS = 17
+
+
+def _devices(
+    report_age: timedelta = timedelta(), ct_grid: int = 2045
+) -> dict[str, MarstekCloudDevice]:
     """Return the cloud device list, as last reported report_age ago."""
     report_time = int((dt_util.utcnow() - report_age).timestamp())
     return {
         raw["devid"]: replace(
             MarstekCloudDevice.from_json(raw), report_time=report_time
         )
-        for raw in DEVICE_LIST
+        for raw in (*DEVICE_LIST, {**CT_METER, "grid": ct_grid})
     }
 
 
@@ -126,16 +148,17 @@ async def test_cloud_used_while_device_silent(
     # Stored energy follows the battery level: 200 Wh at 9 % -> 602 Wh at 27.1 %.
     assert state("stored_energy") == "602"
     assert state("total_grid_output_energy") == "695"
-    assert state("grid_power") == "-909"
+    # Grid power is the CT meter's, not the battery's own AC output (-909 W).
+    assert state("grid_power") == "2045"
     assert state("grid_phase_a_power") == "unknown"
 
-    # Energy counts from the cloud readings: 855 W discharging and 909 W
-    # exported for one minute.
+    # Energy counts from the cloud readings: 855 W discharging and 2045 W
+    # imported for one minute.
     discharged = float(state("battery_discharge_energy"))
-    exported = float(state("grid_export_energy"))
+    imported = float(state("grid_import_energy"))
     await poll(hass, freezer)
     assert round(float(state("battery_discharge_energy")) - discharged, 2) == 14.25
-    assert round(float(state("grid_export_energy")) - exported, 2) == 15.15
+    assert round(float(state("grid_import_energy")) - imported, 2) == 34.08
 
     client.online = True
     await poll(hass, freezer)
@@ -150,15 +173,45 @@ async def test_stale_cloud_data_not_used(
     cloud_client: AsyncMock,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """A device that stopped reporting to the cloud becomes unavailable."""
+    """Cloud values that stop changing for 15 minutes are not used."""
     ids = await setup_entry(hass, _local_entry(hass, BACKUP_OPTIONS))
-    cloud_client.side_effect = lambda **_: _devices(timedelta(hours=1))
+    stale = _devices(timedelta(hours=1))
+    cloud_client.side_effect = lambda **_: stale
 
     client.online = False
     await poll(hass, freezer)
     await poll(hass, freezer)
+    # The first values of an outage are given the benefit of the doubt.
+    assert hass.states.get(ids["data_source"]).state == "cloud"
+    for _ in range(STALE_POLLS):
+        await poll(hass, freezer)
     assert hass.states.get(ids["battery_soc"]).state == STATE_UNAVAILABLE
     assert hass.states.get(ids["data_source"]).state == "none"
+
+
+async def test_changing_cloud_values_used_despite_old_report(
+    hass: HomeAssistant,
+    client: FakeClient,
+    cloud_client: AsyncMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Cloud values that keep changing are used, however old report_time is.
+
+    The cloud's report_time can lag its live values by hours.
+    """
+    ids = await setup_entry(hass, _local_entry(hass, BACKUP_OPTIONS))
+    old = (dt_util.utcnow() - timedelta(hours=16)).timestamp()
+    readings = iter(range(1000, 2000, 10))
+    cloud_client.side_effect = lambda **_: {
+        devid: replace(device, report_time=int(old))
+        for devid, device in _devices(ct_grid=next(readings)).items()
+    }
+
+    client.online = False
+    for _ in range(STALE_POLLS + 2):
+        await poll(hass, freezer)
+    assert hass.states.get(ids["data_source"]).state == "cloud"
+    assert hass.states.get(ids["battery_soc"]).state == "27.1"
 
 
 async def test_setup_from_cloud_when_device_silent(
@@ -296,12 +349,22 @@ async def test_stale_cloud_reason_logged(
     cloud_client.side_effect = lambda **_: stale
 
     client.online = False
-    for _ in range(3):
+    for _ in range(STALE_POLLS + 3):
         await poll(hass, freezer)
     coordinator = entry.runtime_data
-    assert "last reported to the cloud" in coordinator.cloud_error
+    assert "have not changed" in coordinator.cloud_error
     assert coordinator.cloud_report_time is not None
     assert caplog.text.count("cloud backup cannot be used") == 1
+
+    # The reason is kept for diagnostics after the device answers again, and
+    # warned about again in the next outage.
+    client.online = True
+    await poll(hass, freezer)
+    assert "have not changed" in coordinator.cloud_error
+    client.online = False
+    for _ in range(STALE_POLLS + 2):
+        await poll(hass, freezer)
+    assert caplog.text.count("cloud backup cannot be used") == 2
 
 
 async def test_cloud_timeout_is_cloud_error(hass: HomeAssistant) -> None:

@@ -55,6 +55,9 @@ async def async_get_config_entry_diagnostics(
             "data_source": coordinator.data_source,
             "cloud_backup": coordinator.has_cloud_backup,
             "cloud_error": coordinator.cloud_error,
+            "cloud_error_time": coordinator.cloud_error_time.isoformat()
+            if coordinator.cloud_error_time
+            else None,
             "cloud_report_time": coordinator.cloud_report_time.isoformat()
             if coordinator.cloud_report_time
             else None,

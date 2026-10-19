@@ -25,6 +25,8 @@ CONF_CLOUD_DEVID: Final = "cloud_devid"
 # Cloud device types that expose PV (solar) production, such as the Marstek
 # micro-inverters whose type starts with "HMI".
 CLOUD_PV_TYPE_PREFIX: Final = "HMI"
+# Cloud device type of the Marstek CT meters (CT002, CT003), such as "HME-4".
+CLOUD_CT_TYPE_PREFIX: Final = "HME"
 
 SUPPORTED_DEVICE_TYPES: Final[frozenset[str]] = frozenset(
     {

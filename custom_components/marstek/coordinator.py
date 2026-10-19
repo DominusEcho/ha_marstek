@@ -18,6 +18,7 @@ from homeassistant.util.hass_dict import HassKey
 
 from .cloud import MarstekCloudClient, MarstekCloudDevice, MarstekCloudError
 from .const import (
+    CLOUD_CT_TYPE_PREFIX,
     CONF_BLE_MAC,
     CONF_CLOUD_DEVID,
     CONF_DEVICE_TYPE,
@@ -59,8 +60,9 @@ DAILY_ENERGY_KEYS = (
 DAILY_RESET_MAX_WH = 100
 # A battery level this high cannot drop to 0 % within one poll.
 SOC_GLITCH_FLOOR = 10
-# Cloud readings older than this are too stale to stand in for the device,
-# for example because the device is offline altogether.
+# Cloud readings that stayed the same this long are too stale to stand in for
+# the device, for example because it is offline altogether. The cloud's
+# report_time is no guide on its own: it can lag the live values by hours.
 CLOUD_MAX_AGE = timedelta(minutes=15)
 
 # Readings the cloud does not report; they are unknown, rather than stale,
@@ -96,10 +98,17 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
     # Whether the latest data was just read, locally or from the cloud, rather
     # than held over from before a missed poll.
     fresh: bool = False
-    # Why the cloud backup was last not used, and when the device last
-    # reported to the cloud, for diagnostics.
+    # Why and when the cloud backup was last not used, kept until it is used
+    # again, and when the device last reported to the cloud, for diagnostics.
     cloud_error: str | None = None
+    cloud_error_time: datetime | None = None
     cloud_report_time: datetime | None = None
+    # The reason already warned about during the current outage.
+    _cloud_warned: str | None = None
+    # The cloud readings last seen during the current outage, and when they
+    # last changed.
+    _cloud_readings: tuple[object, ...] | None = None
+    _cloud_changed: datetime | None = None
 
     def __init__(
         self,
@@ -237,7 +246,8 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
         self.error_state = ERROR_NONE
         self.data_source = DATA_SOURCE_LOCAL
         self.fresh = True
-        self.cloud_error = None
+        self._cloud_warned = None
+        self._cloud_readings = None
         self.last_response = last_response
         return hold_glitches(previous, status, new_day=new_day)
 
@@ -296,14 +306,25 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
             return self._cloud_unusable(
                 f"the cloud does not list device {self.cloud_devid}"
             )
-        if device.report_time is None:
-            return self._cloud_unusable("the cloud has no report time for it")
-        self.cloud_report_time = dt_util.utc_from_timestamp(device.report_time)
-        age = dt_util.utcnow() - self.cloud_report_time
-        if age > CLOUD_MAX_AGE:
+        ct = cloud_ct_meter(devices)
+        now = dt_util.utcnow()
+        if device.report_time is not None:
+            self.cloud_report_time = dt_util.utc_from_timestamp(device.report_time)
+        # The cloud values count as live while they keep changing, or while
+        # the device reported recently. The first values of an outage are
+        # given the benefit of the doubt.
+        readings = (device, ct)
+        if readings != self._cloud_readings:
+            self._cloud_readings = readings
+            self._cloud_changed = now
+        assert self._cloud_changed is not None
+        reported_recently = (
+            self.cloud_report_time is not None
+            and now - self.cloud_report_time <= CLOUD_MAX_AGE
+        )
+        if not reported_recently and now - self._cloud_changed > CLOUD_MAX_AGE:
             return self._cloud_unusable(
-                f"it last reported to the cloud at {self.cloud_report_time}, "
-                f"more than {CLOUD_MAX_AGE} ago"
+                f"its cloud values have not changed since {self._cloud_changed}"
             )
         self.cloud_error = None
         if self.data_source != DATA_SOURCE_CLOUD:
@@ -312,18 +333,20 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
                 self.device_ip,
             )
         return status_from_cloud(
-            previous or MarstekDeviceStatus(device_ip=self.device_ip), device
+            previous or MarstekDeviceStatus(device_ip=self.device_ip), device, ct
         )
 
     def _cloud_unusable(self, reason: str) -> None:
         """Record why the cloud backup cannot be used, warning once per reason."""
-        if reason != self.cloud_error:
+        if reason != self._cloud_warned:
             _LOGGER.warning(
                 "Device %s is not answering and its cloud backup cannot be used: %s",
                 self.device_ip,
                 reason,
             )
+            self._cloud_warned = reason
         self.cloud_error = reason
+        self.cloud_error_time = dt_util.utcnow()
 
     async def _async_refresh_firmware(self) -> None:
         """Re-read the firmware version, as a firmware update causes an outage."""
@@ -347,14 +370,29 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[MarstekDeviceStatus]):
             registry.async_update_device(device.id, sw_version=str(info.version))
 
 
+def cloud_ct_meter(
+    devices: dict[str, MarstekCloudDevice],
+) -> MarstekCloudDevice | None:
+    """Return the account's CT meter, if it has exactly one."""
+    meters = [
+        device
+        for device in devices.values()
+        if device.device_type.startswith(CLOUD_CT_TYPE_PREFIX)
+    ]
+    return meters[0] if len(meters) == 1 else None
+
+
 def status_from_cloud(
-    previous: MarstekDeviceStatus, device: MarstekCloudDevice
+    previous: MarstekDeviceStatus,
+    device: MarstekCloudDevice,
+    ct: MarstekCloudDevice | None = None,
 ) -> MarstekDeviceStatus:
     """Return the previous status updated with what the cloud reports.
 
-    The cloud grid power is the CT meter's, positive when importing, like the
-    local one. The daily energy counters and the device mode keep their last
-    local values; readings the cloud does not have become unknown.
+    The grid power is the CT meter's, positive when importing, like the local
+    one; the battery's own grid value is its AC output, so it is not used.
+    The daily energy counters and the device mode keep their last local
+    values; readings the cloud does not have become unknown.
     """
     net_power = (
         None
@@ -386,7 +424,7 @@ def status_from_cloud(
         battery_power=abs(net_power) if net_power is not None else None,
         battery_status=battery_status,
         battery_energy=battery_energy,
-        grid_power=device.grid_power,
+        grid_power=ct.grid_power if ct is not None else None,
         **dict.fromkeys(CLOUD_UNKNOWN_KEYS),
     )
 

@@ -13,5 +13,5 @@
   "requirements": [
     "https://github.com/DominusEcho/aiomarstek/archive/eff6298e97c12358081959e2ea79f0234dce5d4a.zip#aiomarstek==0.1.7+dominusecho.5"
   ],
-  "version": "0.1.7.7"
+  "version": "0.1.7.8"
 }
